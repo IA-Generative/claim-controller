@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: dev
-    image: ghcr.io/arnaudta/claim-controller:dev
+    image: ghcr.io/ia-generative/claim-controller:dev
     mem_limit: 2g
     ports:
       - "8080:8080"
