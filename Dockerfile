@@ -7,7 +7,6 @@ RUN go install github.com/air-verse/air@latest
 
 COPY . .
 
-ENV NAMESPACE=default
 ENV TEMPLATE_PATH=/workspace/config/template/resources.yaml
 ENV VALUES_PATH=/values/values.yaml
 ENV API_ADDR=:8080
@@ -34,7 +33,6 @@ COPY --from=builder /out/server /app/server
 COPY config/template/resources.yaml /app/config/template/resources.yaml
 COPY config/template/values.yaml /values/values.yaml
 
-ENV NAMESPACE=default
 ENV TEMPLATE_PATH=/app/config/template/resources.yaml
 ENV VALUES_PATH=/values/values.yaml
 ENV API_ADDR=:8080

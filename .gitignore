@@ -13,7 +13,7 @@ dist/
 coverage.out
 
 # Go workspace/cache files
-*.mod
+# *.mod
 
 # Vendor (ignore if you don't commit dependencies)
 vendor/

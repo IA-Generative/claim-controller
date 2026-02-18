@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    branches:
+    - main
+
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+
+    name: Create new release
+    runs-on: ubuntu-latest
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      major-tag: ${{ steps.release.outputs.major }}
+      minor-tag: ${{ steps.release.outputs.minor }}
+      patch-tag: ${{ steps.release.outputs.patch }}
+      pr_branch_name: ${{ steps.export-pr.outputs.pr_branch_name }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Pre release new version
+      id: release
+      uses: googleapis/release-please-action@v4
+      with:
+        target-branch: main
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Export PR branch name
+      id: export-pr
+      run: |
+        PR_JSON='${{ steps.release.outputs.pr }}'
+        if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+          echo "pr_branch_name=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        PR=$(printf '%s' "$PR_JSON" | jq -r '.headBranchName // ""')
+        echo "pr_branch_name=$PR" >> "$GITHUB_OUTPUT"
+
+    - name: Install yq
+      if: ${{ steps.export-pr.outputs.pr_branch_name != '' }}
+      run: |
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+
+    - name: Checkout to PR branch
+      if: ${{ steps.export-pr.outputs.pr_branch_name != '' }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.export-pr.outputs.pr_branch_name }}
+        fetch-depth: 0
+
+    - name: Update Chart.yaml with new version and document it
+      if: ${{ steps.export-pr.outputs.pr_branch_name != '' }}
+      run: |
+        VERSION='${{ steps.release.outputs.version }}'
+        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+          VERSION=$(yq e '.appVersion' charts/claim-controller/Chart.yaml)
+        fi
+        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+          VERSION="0.1.0"
+        fi
+        export VERSION
+        yq e -i '.appVersion = env(VERSION)' charts/claim-controller/Chart.yaml
+
+        export CHART_VERSION=$(yq .version charts/claim-controller/Chart.yaml)
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CHART_VERSION"
+        export NEW_CHART_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+        echo $NEW_CHART_VERSION
+        yq e -i '.version = env(NEW_CHART_VERSION)' charts/claim-controller/Chart.yaml
+
+        docker run --rm --volume "$(pwd)/charts/claim-controller:/helm-docs" -u $(id -u) docker.io/jnorwood/helm-docs:latest
+        git config --global user.name "Arnaud Tardif"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit --amend --no-edit
+        git push origin -f
+
+  build:
+    name: Build release image
+    needs: release
+    if: ${{ needs.release.outputs['release-created'] == 'true' }}
+    permissions:
+      packages: write
+    uses: ./.github/workflows/build.yml
+    with:
+      tags: |
+        ghcr.io/ia-generative/claim-controller:${{ needs.release.outputs['major-tag'] }}
+        ghcr.io/ia-generative/claim-controller:${{ needs.release.outputs['minor-tag'] }}
+        ghcr.io/ia-generative/claim-controller:${{ needs.release.outputs['patch-tag'] }}
