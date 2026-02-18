@@ -77,12 +77,11 @@ curl -X POST http://localhost:8080/claim
 
 ```bash
 kubectl apply -f config/rbac/role.yaml
-kubectl apply -f config/samples/template-configmap.yaml
 kubectl apply -f config/manager/deployment.yaml
 ```
 
 The provided RBAC uses `Role`/`RoleBinding` in one namespace only (no CRD, no cluster-wide permissions).
-Deployment manifests mount two volumes: one for Helm template (`resources.yaml`) and one for runtime values (`values.yaml`).
+Deployment uses template files baked into the container image at `config/template/resources.yaml` and `config/template/values.yaml`.
 
 ## Docker
 

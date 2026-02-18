@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,9 @@ type RenderedResource struct {
 }
 
 func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate, error) {
+	log.Printf("Loading values from %s", valuesPath)
+	log.Printf("Loading template from %s", templatePath)
+	
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)

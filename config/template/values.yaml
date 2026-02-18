@@ -17,8 +17,6 @@ resources: |
     name: {{ .Release.Name }}
     labels:
       app.kubernetes.io/name: {{ .Values.workload.name }}
-    annotations:
-      claim.controller/return: "tata=toto"
   spec:
     restartPolicy: Never
     containers:

@@ -21,15 +21,6 @@ spec:
         - name: manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - --namespace={{ $ns }}
-            - --template-path=/template/resources.yaml
-            - --values-path=/values/values.yaml
-            - --api-addr={{ .Values.api.addr }}
-            - --metrics-addr={{ .Values.metrics.addr }}
-            - --health-probe-addr={{ .Values.probe.addr }}
-            - --default-ttl={{ .Values.defaultTTL }}
-            - --reconcile-interval={{ .Values.reconcileInterval }}
           ports:
             - name: api
               containerPort: 8080
@@ -37,22 +28,8 @@ spec:
               containerPort: 8081
             - name: probe
               containerPort: 8082
-          volumeMounts:
-            - name: template
-              mountPath: /template
-              readOnly: true
-            - name: values
-              mountPath: /values
-              readOnly: true
           resources:
 {{ toYaml .Values.resources | indent 12 }}
-      volumes:
-        - name: template
-          configMap:
-            name: {{ include "claim-controller.fullname" . }}-template
-        - name: values
-          configMap:
-            name: {{ include "claim-controller.fullname" . }}-template-values
 ---
 apiVersion: v1
 kind: Service
@@ -68,3 +45,6 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: api
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics

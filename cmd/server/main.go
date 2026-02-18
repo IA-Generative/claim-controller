@@ -43,7 +43,7 @@ func main() {
 	const (
 		defaultNamespace         = "default"
 		defaultTemplatePath      = "config/template/resources.yaml"
-		defaultValuesPath        = "config/template/values.yaml"
+		defaultValuesPath        = "/values/values.yaml"
 		defaultAPIAddr           = "0.0.0.0:8080"
 		defaultMetricsAddr       = "0.0.0.0:8081"
 		defaultProbeAddr         = "0.0.0.0:8082"
@@ -55,9 +55,10 @@ func main() {
 	bootstrap.StringVar(&configPath, "config", getEnv("CONFIG_PATH", ""), "path to YAML/JSON config file")
 	_ = bootstrap.Parse(os.Args[1:])
 
+
 	namespaceDefault := resolveString("NAMESPACE", os.Getenv("NAMESPACE"), defaultNamespace)
-	templatePathDefault := resolveString("TEMPLATE_PATH", os.Getenv("TEMPLATE_PATH"), defaultTemplatePath)
 	valuesPathDefault := resolveString("VALUES_PATH", os.Getenv("VALUES_PATH"), defaultValuesPath)
+	templatePathDefault := resolveString("TEMPLATE_PATH", os.Getenv("TEMPLATE_PATH"), defaultTemplatePath)
 	apiAddrDefault := resolveString("API_ADDR", os.Getenv("API_ADDR"), defaultAPIAddr)
 	metricsAddrDefault := resolveString("METRICS_ADDR", os.Getenv("METRICS_ADDR"), defaultMetricsAddr)
 	probeAddrDefault := resolveString("PROBE_ADDR", os.Getenv("PROBE_ADDR"), defaultProbeAddr)
@@ -65,8 +66,8 @@ func main() {
 	reconcileIntervalDefault := resolveDuration("RECONCILE_INTERVAL", os.Getenv("RECONCILE_INTERVAL"), defaultReconcileInterval)
 
 	flag.StringVar(&namespace, "namespace", namespaceDefault, "namespace watched and managed by the controller")
-	flag.StringVar(&templatePath, "template-path", templatePathDefault, "path to Helm template file")
 	flag.StringVar(&valuesPath, "values-path", valuesPathDefault, "path to Helm values file")
+	flag.StringVar(&templatePath, "template-path", templatePathDefault, "path to Helm template file")	
 	flag.StringVar(&apiAddr, "api-addr", apiAddrDefault, "claim API listen address")
 	flag.StringVar(&metricsAddr, "metrics-addr", metricsAddrDefault, "metrics listen address")
 	flag.StringVar(&probeAddr, "health-probe-addr", probeAddrDefault, "probe listen address")

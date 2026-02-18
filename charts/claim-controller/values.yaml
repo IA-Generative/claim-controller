@@ -1,0 +1,45 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/nonot/claim-controller
+  tag: dev
+  pullPolicy: Always
+
+serviceAccount:
+  create: true
+  name: ""
+
+namespace: ""
+
+api:
+  addr: ":8080"
+
+metrics:
+  addr: ":8081"
+
+probe:
+  addr: ":8082"
+
+defaultTTL: 10m
+reconcileInterval: 30s
+
+service:
+  type: ClusterIP
+  port: 80
+  metricsPort: 8081
+
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: ""
+  path: /metrics
+  labels: {}
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 500M
+  requests:
+    cpu: 200m
+    memory: 500M

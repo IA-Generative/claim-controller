@@ -20,8 +20,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --namespace=default
-            - --template-path=/template/resources.yaml
-            - --values-path=/values/values.yaml
+            - --values-path=/app/config/template/values.yaml
             - --api-addr=:8080
             - --metrics-addr=:8081
           ports:
@@ -29,17 +28,3 @@ spec:
               containerPort: 8080
             - name: metrics
               containerPort: 8081
-          volumeMounts:
-            - name: template
-              mountPath: /template
-              readOnly: true
-            - name: values
-              mountPath: /values
-              readOnly: true
-      volumes:
-        - name: template
-          configMap:
-            name: claim-controller-template
-        - name: values
-          configMap:
-            name: claim-controller-template-values
