@@ -1,0 +1,7 @@
+.git
+.gitignore
+tmp
+charts
+bin
+dist
+*.log

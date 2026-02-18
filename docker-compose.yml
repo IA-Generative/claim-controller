@@ -1,0 +1,19 @@
+services:
+  claim-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: nonot/claim-controller:dev
+    mem_limit: 3g
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+    volumes:
+      - ./:/workspace
+      - ${HOME}/.kube:/root/.kube:ro
+    environment:
+      TEMPLATE_PATH: /workspace/config/template/resources.yaml
+      VALUES_PATH: /workspace/config/template/values.yaml
+      KUBECONFIG: /root/.kube/config

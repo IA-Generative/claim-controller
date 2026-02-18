@@ -1,0 +1,70 @@
+{{- $ns := default .Release.Namespace .Values.namespace -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "claim-controller.fullname" . }}
+  namespace: {{ $ns }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "claim-controller.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "claim-controller.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "claim-controller.serviceAccountName" . }}
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --namespace={{ $ns }}
+            - --template-path=/template/resources.yaml
+            - --values-path=/values/values.yaml
+            - --api-addr={{ .Values.api.addr }}
+            - --metrics-addr={{ .Values.metrics.addr }}
+            - --health-probe-addr={{ .Values.probe.addr }}
+            - --default-ttl={{ .Values.defaultTTL }}
+            - --reconcile-interval={{ .Values.reconcileInterval }}
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8081
+            - name: probe
+              containerPort: 8082
+          volumeMounts:
+            - name: template
+              mountPath: /template
+              readOnly: true
+            - name: values
+              mountPath: /values
+              readOnly: true
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: template
+          configMap:
+            name: {{ include "claim-controller.fullname" . }}-template
+        - name: values
+          configMap:
+            name: {{ include "claim-controller.fullname" . }}-template-values
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "claim-controller.fullname" . }}
+  namespace: {{ $ns }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "claim-controller.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: api

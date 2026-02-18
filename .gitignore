@@ -1,0 +1,37 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build/test artifacts
+*.test
+*.out
+coverage.out
+
+# Go workspace/cache files
+*.mod
+
+# Vendor (ignore if you don't commit dependencies)
+vendor/
+
+# Local environment files
+.env
+.env.*
+
+# Editor/OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime temp/log files
+tmp/
+*.log
+
+# Docker override files
+docker-compose.override.yml

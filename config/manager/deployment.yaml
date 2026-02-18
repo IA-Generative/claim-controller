@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claim-controller
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: claim-controller
+  template:
+    metadata:
+      labels:
+        app: claim-controller
+    spec:
+      serviceAccountName: claim-controller
+      containers:
+        - name: manager
+          image: ghcr.io/nonot/claim-controller:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --namespace=default
+            - --template-path=/template/resources.yaml
+            - --values-path=/values/values.yaml
+            - --api-addr=:8080
+            - --metrics-addr=:8081
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8081
+          volumeMounts:
+            - name: template
+              mountPath: /template
+              readOnly: true
+            - name: values
+              mountPath: /values
+              readOnly: true
+      volumes:
+        - name: template
+          configMap:
+            name: claim-controller-template
+        - name: values
+          configMap:
+            name: claim-controller-template-values

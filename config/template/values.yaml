@@ -1,0 +1,43 @@
+workload:
+  name: claim-workload
+  containerName: app
+  image: mcr.microsoft.com/playwright/mcp:v0.0.68
+  imagePullPolicy: IfNotPresent
+  containerPort: 8932
+
+service:
+  portName: http
+  port: 80
+  targetPort: 8932
+
+resources: |
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: {{ .Release.Name }}
+    labels:
+      app.kubernetes.io/name: {{ .Values.workload.name }}
+    annotations:
+      claim.controller/return: "tata=toto"
+  spec:
+    restartPolicy: Never
+    containers:
+      - name: {{ .Values.workload.containerName }}
+        image: {{ .Values.workload.image }}
+        imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
+        ports:
+          - containerPort: {{ .Values.workload.containerPort }}
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: {{ .Release.Name }}
+    labels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+    annotations:
+      claim.controller/return: "fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local"
+  spec:
+    ports:
+      - name: {{ .Values.service.portName | default "http" }}
+        port: {{ .Values.service.port }}
+        targetPort: {{ .Values.service.targetPort }}
