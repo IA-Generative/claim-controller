@@ -8,7 +8,6 @@ RUN go install github.com/air-verse/air@latest
 COPY . .
 
 ENV TEMPLATE_PATH=/workspace/config/template/resources.yaml
-ENV VALUES_PATH=/values/values.yaml
 ENV API_ADDR=:8080
 ENV METRICS_ADDR=:8081
 ENV PROBE_ADDR=:8082
@@ -26,15 +25,32 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/server ./cmd/server
 
+FROM alpine:3.20 AS prod-shell
+WORKDIR /app
+
+RUN addgroup -S app && adduser -S -G app app
+
+COPY --from=builder /out/server /app/server
+COPY templates/resources.yaml /app/config/template/resources.yaml
+
+ENV TEMPLATE_PATH=/app/config/template/resources.yaml
+ENV API_ADDR=:8080
+ENV METRICS_ADDR=:8081
+ENV PROBE_ADDR=:8082
+ENV DEFAULT_TTL=10m
+ENV RECONCILE_INTERVAL=30s
+
+EXPOSE 8080 8081 8082
+USER app
+ENTRYPOINT ["/app/server"]
+
 FROM gcr.io/distroless/static:nonroot AS prod
 WORKDIR /app
 
 COPY --from=builder /out/server /app/server
-COPY config/template/resources.yaml /app/config/template/resources.yaml
-COPY config/template/values.yaml /values/values.yaml
+COPY templates/resources.yaml /app/config/template/resources.yaml
 
 ENV TEMPLATE_PATH=/app/config/template/resources.yaml
-ENV VALUES_PATH=/values/values.yaml
 ENV API_ADDR=:8080
 ENV METRICS_ADDR=:8081
 ENV PROBE_ADDR=:8082

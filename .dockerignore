@@ -5,3 +5,8 @@ charts
 bin
 dist
 *.log
+release-please*
+Dockerfile
+README.md
+docker-compose.yml
+template/values.yaml

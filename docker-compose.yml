@@ -12,8 +12,8 @@ services:
       - "8082:8082"
     volumes:
       - ./:/workspace
-      - ./config/template/values.yaml:/values/values.yaml:ro
-      - ${HOME}/.kube:/root/.kube:ro
+      - ./templates/values.yaml:/values/values.yaml:ro
+      - ${HOME}/.kube:/home/nonroot/.kube:ro
     environment:
       VALUES_PATH: /values/values.yaml
-      KUBECONFIG: /root/.kube/config
+      KUBECONFIG: /home/nonroot/.kube/config

@@ -30,6 +30,11 @@ valuesTemplate: |
     image: mcr.microsoft.com/playwright/mcp:v0.0.68
     imagePullPolicy: IfNotPresent
     containerPort: 8932
+    args: 
+    - --snapshot-mode=full
+    - --port 8932
+    - --host 0.0.0.0
+    - --allowed-hosts *
 
   service:
     portName: http
@@ -49,6 +54,12 @@ valuesTemplate: |
         - name: {{ .Values.workload.containerName }}
           image: {{ .Values.workload.image }}
           imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
+          {{ with .Values.workload.args }}
+          args:
+            {{- range . }}
+            - {{ . }}
+            {{- end }}
+          {{ end }}
           ports:
             - containerPort: {{ .Values.workload.containerPort }}
           resources:

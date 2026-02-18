@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -28,16 +29,18 @@ import (
 
 func main() {
 	var (
-		configPath         string
-		namespace          string
-		templatePath       string
-		valuesPath         string
-		apiAddr            string
-		metricsAddr        string
-		defaultTTL         time.Duration
-		reconcileInterval  time.Duration
-		probeAddr          string
-		controllerLogLevel int
+		configPath          string
+		namespace           string
+		templatePath        string
+		valuesPath          string
+		valuesConfigMapName string
+		valuesConfigMapKey  string
+		apiAddr             string
+		metricsAddr         string
+		defaultTTL          time.Duration
+		reconcileInterval   time.Duration
+		probeAddr           string
+		controllerLogLevel  int
 	)
 
 	const (
@@ -55,9 +58,10 @@ func main() {
 	bootstrap.StringVar(&configPath, "config", getEnv("CONFIG_PATH", ""), "path to YAML/JSON config file")
 	_ = bootstrap.Parse(os.Args[1:])
 
-
 	namespaceDefault := resolveString("NAMESPACE", os.Getenv("NAMESPACE"), defaultNamespace)
 	valuesPathDefault := resolveString("VALUES_PATH", os.Getenv("VALUES_PATH"), defaultValuesPath)
+	valuesConfigMapNameDefault := resolveString("VALUES_CONFIGMAP_NAME", os.Getenv("VALUES_CONFIGMAP_NAME"), "")
+	valuesConfigMapKeyDefault := resolveString("VALUES_CONFIGMAP_KEY", os.Getenv("VALUES_CONFIGMAP_KEY"), "")
 	templatePathDefault := resolveString("TEMPLATE_PATH", os.Getenv("TEMPLATE_PATH"), defaultTemplatePath)
 	apiAddrDefault := resolveString("API_ADDR", os.Getenv("API_ADDR"), defaultAPIAddr)
 	metricsAddrDefault := resolveString("METRICS_ADDR", os.Getenv("METRICS_ADDR"), defaultMetricsAddr)
@@ -67,7 +71,9 @@ func main() {
 
 	flag.StringVar(&namespace, "namespace", namespaceDefault, "namespace watched and managed by the controller")
 	flag.StringVar(&valuesPath, "values-path", valuesPathDefault, "path to Helm values file")
-	flag.StringVar(&templatePath, "template-path", templatePathDefault, "path to Helm template file")	
+	flag.StringVar(&valuesConfigMapName, "values-configmap-name", valuesConfigMapNameDefault, "ConfigMap name containing values template")
+	flag.StringVar(&valuesConfigMapKey, "values-configmap-key", valuesConfigMapKeyDefault, "ConfigMap data key containing values template")
+	flag.StringVar(&templatePath, "template-path", templatePathDefault, "path to Helm template file")
 	flag.StringVar(&apiAddr, "api-addr", apiAddrDefault, "claim API listen address")
 	flag.StringVar(&metricsAddr, "metrics-addr", metricsAddrDefault, "metrics listen address")
 	flag.StringVar(&probeAddr, "health-probe-addr", probeAddrDefault, "probe listen address")
@@ -92,7 +98,14 @@ func main() {
 		controller.ManagedByLabelKey: controller.ManagedByLabelValue,
 	})
 
-	manager, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+
+	kubeClient, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		panic(fmt.Errorf("create kube client: %w", err))
+	}
+
+	manager, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
 			DefaultNamespaces:    map[string]cache.Config{namespace: {}},
@@ -122,15 +135,19 @@ func main() {
 	}
 
 	apiServer := api.NewServer(api.Config{
-		Namespace:    namespace,
-		DefaultTTL:   defaultTTL,
-		TemplatePath: templatePath,
-		ValuesPath:   valuesPath,
-		Client:       manager.GetClient(),
+		Namespace:           namespace,
+		DefaultTTL:          defaultTTL,
+		TemplatePath:        templatePath,
+		ValuesPath:          valuesPath,
+		ValuesConfigMapName: valuesConfigMapName,
+		ValuesConfigMapKey:  valuesConfigMapKey,
+		KubeClient:          kubeClient,
+		Client:              manager.GetClient(),
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	apiServer.Start(ctx)
 
 	httpServer := &http.Server{
 		Addr:              apiAddr,

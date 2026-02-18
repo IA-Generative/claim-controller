@@ -1,3 +1,5 @@
+# This file is only for a demo purpose, it is not used by the controller.
+# Please refer to charts/claim-controller/values.yaml for the actual values used by the controller.
 workload:
   name: claim-workload
   containerName: app

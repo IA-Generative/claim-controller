@@ -32,9 +32,6 @@ type RenderedResource struct {
 }
 
 func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate, error) {
-	log.Printf("Loading values from %s", valuesPath)
-	log.Printf("Loading template from %s", templatePath)
-	
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)
@@ -44,6 +41,23 @@ func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read values file: %w", err)
 	}
+
+	return loadResourceTemplateFromData(templatePath, templateData, valuesData, id)
+}
+
+func LoadResourceTemplateFromValuesData(templatePath string, valuesData []byte, id string) (ResourceTemplate, error) {
+	log.Printf("Loading values from provided bytes")
+	log.Printf("Loading template from %s", templatePath)
+
+	templateData, err := os.ReadFile(templatePath)
+	if err != nil {
+		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)
+	}
+
+	return loadResourceTemplateFromData(templatePath, templateData, valuesData, id)
+}
+
+func loadResourceTemplateFromData(templatePath string, templateData, valuesData []byte, id string) (ResourceTemplate, error) {
 
 	values, err := chartutil.ReadValues(valuesData)
 	if err != nil {
