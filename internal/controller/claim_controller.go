@@ -14,17 +14,18 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	activeClaimsGauge = promauto.NewGauge(prometheus.GaugeOpts{
+	activeClaimsGauge = promauto.With(metrics.Registry).NewGauge(prometheus.GaugeOpts{
 		Name: "claim_controller_active_claims",
 		Help: "Number of managed claims currently present.",
 	})
-	activeResourcesGauge = promauto.NewGauge(prometheus.GaugeOpts{
+	activeResourcesGauge = promauto.With(metrics.Registry).NewGauge(prometheus.GaugeOpts{
 		Name: "claim_controller_active_resources",
 		Help: "Number of managed resources currently present.",
 	})
@@ -42,6 +43,10 @@ type ClaimReconciler struct {
 func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if req.Namespace != r.Namespace {
 		return ctrl.Result{}, nil
+	}
+
+	if err := r.cleanupExpiredClaims(ctx); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	claim := &corev1.ConfigMap{}
@@ -88,6 +93,31 @@ func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{RequeueAfter: nextCheck}, nil
+}
+
+func (r *ClaimReconciler) cleanupExpiredClaims(ctx context.Context) error {
+	claims := &corev1.ConfigMapList{}
+	if err := r.List(ctx, claims, client.InNamespace(r.Namespace), client.MatchingLabels{ManagedByLabelKey: ManagedByLabelValue}); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	for i := range claims.Items {
+		claim := &claims.Items[i]
+		expiresAt, err := time.Parse(time.RFC3339, claim.Annotations[ExpiresAtAnnotationKey])
+		if err != nil || now.Before(expiresAt) {
+			continue
+		}
+
+		if err := r.cleanupClaimResources(ctx, claim); err != nil {
+			return err
+		}
+		if err := r.Delete(ctx, claim); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *ClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {

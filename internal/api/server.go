@@ -12,6 +12,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,10 +57,15 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/claim", s.handleClaim)
+	s.mux.HandleFunc("/release", s.handleRelease)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+}
+
+type releaseRequest struct {
+	ID string `json:"id"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +79,9 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	expiresAt := time.Now().UTC().Add(s.defaultTTL)
 
 	resourceTemplate, err := template.LoadResourceTemplate(s.templatePath, s.valuesPath, claimID)
+	// add id to returned payload 
+	resourceTemplate.ReturnValues["id"] = claimID
+
 	if err != nil {
 		log.Printf("failed to load resource template: %v", err)
 		http.Error(w, "failed to render templates", http.StatusInternalServerError)
@@ -96,6 +105,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			Labels: map[string]string{
 				controller.ManagedByLabelKey: controller.ManagedByLabelValue,
 				controller.ClaimLabelKey:     claimName,
+				controller.ClaimLabelKeyId:   claimID,
 			},
 			Annotations: map[string]string{
 				controller.ExpiresAtAnnotationKey: expiresAt.Format(time.RFC3339),
@@ -122,14 +132,57 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// payload := map[string]any{
-	// 	"claim":     claimName,
-	// 	"expiresAt": expiresAt.Format(time.RFC3339),
-	// 	"resources": resourceTemplate.Resources,
-	// 	"returns":   resourceTemplate.ReturnValues,
-	// }
-
 	writeJSON(w, http.StatusCreated, resourceTemplate.ReturnValues)
+}
+
+func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req releaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	claimID := strings.TrimSpace(req.ID)
+	if claimID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	claimList := &corev1.ConfigMapList{}
+	if err := s.client.List(ctx, claimList, client.InNamespace(s.namespace), client.MatchingLabels{controller.ClaimLabelKeyId: claimID}); err != nil {
+		log.Printf("failed to list claims: %v", err)
+		if apierrors.IsNotFound(err) {
+			http.Error(w, "claim not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load claim", http.StatusInternalServerError)
+		return
+	}
+
+	for _, claim := range claimList.Items {
+		if claim.Labels[controller.ManagedByLabelKey] != controller.ManagedByLabelValue {
+			http.Error(w, "claim not managed by controller", http.StatusForbidden)
+			return
+		}
+
+		if err := s.client.Delete(ctx, claim.DeepCopy()); err != nil {
+			if apierrors.IsNotFound(err) {
+				http.Error(w, "claim not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to delete claim", http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": claimID})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

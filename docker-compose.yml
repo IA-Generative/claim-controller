@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       target: dev
     image: nonot/claim-controller:dev
-    mem_limit: 3g
+    mem_limit: 1g
     ports:
       - "8080:8080"
       - "8081:8081"

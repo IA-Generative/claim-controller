@@ -192,15 +192,3 @@ func getEnv(name, fallback string) string {
 	}
 	return v
 }
-
-func getEnvDuration(name string, fallback time.Duration) time.Duration {
-	v := os.Getenv(name)
-	if v == "" {
-		return fallback
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return fallback
-	}
-	return d
-}
