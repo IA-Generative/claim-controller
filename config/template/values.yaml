@@ -25,6 +25,13 @@ resources: |
         imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
         ports:
           - containerPort: {{ .Values.workload.containerPort }}
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
   ---
   apiVersion: v1
   kind: Service

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+    - opened
+    - reopened
+    - synchronize
+    - ready_for_review
+    branches:
+    - "**"
+  workflow_dispatch:
+
+jobs:
+  setup:
+    outputs:
+      go-version: ${{ steps.detect-go.outputs.go-version }}
+    name: Setup
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Detect Go version
+      id: detect-go
+      run: |
+        GO_VERSION=$(awk '/^go / {print $2}' go.mod)
+        echo "go-version=$GO_VERSION" >> "$GITHUB_OUTPUT"
+
+  lint:
+    needs: setup
+    uses: ./.github/workflows/lint.yml
+    with:
+      go-version: ${{ needs.setup.outputs.go-version }}
+
+  build:
+    permissions:
+      packages: write
+    needs: setup
+    uses: ./.github/workflows/build.yml
+    with:
+      tags: |
+        ghcr.io/${{ github.repository_owner }}/claim-controller:pr-${{ github.event.pull_request.number }}
