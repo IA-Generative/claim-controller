@@ -65,7 +65,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/claim", s.handleClaim)
-	s.mux.HandleFunc("/release", s.handleRelease)
+	s.mux.HandleFunc("/release/{id}", s.handleRelease)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -74,10 +74,6 @@ func (s *Server) routes() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-}
-
-type releaseRequest struct {
-	ID string `json:"id"`
 }
 
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +93,6 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to render templates", http.StatusInternalServerError)
 		return
 	}
-	resourceTemplate.ReturnValues["id"] = claimID
 	if len(resourceTemplate.RenderedObjects) == 0 {
 		http.Error(w, "rendered templates must include at least one resource", http.StatusInternalServerError)
 		return
@@ -147,7 +142,14 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, resourceTemplate.ReturnValues)
+	body := make(map[string]any)
+	body["id"] = claimID
+	body["expiresAt"] = expiresAt.Format(time.RFC3339)
+	body["data"] = resourceTemplate.ReturnValues
+	body["releasePath"] = fmt.Sprintf("/release/%s", claimID)
+	body["releaseMethod"] = http.MethodPost
+
+	writeJSON(w, http.StatusCreated, body)
 }
 
 func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate, error) {
@@ -169,13 +171,7 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req releaseRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	claimID := strings.TrimSpace(req.ID)
+	claimID := strings.TrimSpace(r.PathValue("id"))
 	if claimID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
@@ -194,7 +190,10 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load claim", http.StatusInternalServerError)
 		return
 	}
-
+	if len(claimList.Items) == 0 {
+		http.Error(w, "claim not found", http.StatusNotFound)
+		return
+	}
 	for _, claim := range claimList.Items {
 		if claim.Labels[controller.ManagedByLabelKey] != controller.ManagedByLabelValue {
 			http.Error(w, "claim not managed by controller", http.StatusForbidden)
@@ -210,7 +209,7 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"deleted": claimID})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
