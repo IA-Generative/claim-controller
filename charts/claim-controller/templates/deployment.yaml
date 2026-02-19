@@ -12,8 +12,6 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
-      annotations:
-        checksum/values-config: {{ include (print $.Template.BasePath "/values-configmap.yaml") . | sha256sum }}
       labels:
         app.kubernetes.io/name: {{ include "claim-controller.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -21,13 +19,17 @@ spec:
       serviceAccountName: {{ include "claim-controller.serviceAccountName" . }}
       containers:
         - name: manager
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: VALUES_CONFIGMAP_NAME
+              value: {{ include "claim-controller.fullname" . }}-values
+            - name: VALUES_CONFIGMAP_KEY
+              value: values.yaml
           ports:
             - name: api
               containerPort: 8080
@@ -35,17 +37,8 @@ spec:
               containerPort: 8081
             - name: probe
               containerPort: 8082
-          volumeMounts:
-            - name: values
-              mountPath: /values/values.yaml
-              subPath: values.yaml
-              readOnly: true
           resources:
 {{ toYaml .Values.resources | indent 12 }}
-      volumes:
-        - name: values
-          configMap:
-            name: {{ include "claim-controller.fullname" . }}-values
 ---
 apiVersion: v1
 kind: Service

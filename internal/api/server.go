@@ -19,36 +19,44 @@ import (
 
 	"github.com/nonot/claim-controller/internal/controller"
 	"github.com/nonot/claim-controller/internal/template"
+	"github.com/nonot/claim-controller/internal/values"
 )
 
 type Config struct {
-	Namespace    string
-	DefaultTTL   time.Duration
-	TemplatePath string
-	ValuesPath   string
-	Client       client.Client
+	Namespace      string
+	DefaultTTL     time.Duration
+	TemplatePath   string
+	ValuesProvider values.Provider
+	Client         client.Client
 }
 
 type Server struct {
-	namespace    string
-	defaultTTL   time.Duration
-	templatePath string
-	valuesPath   string
-	client       client.Client
-	mux          *http.ServeMux
+	namespace      string
+	defaultTTL     time.Duration
+	templatePath   string
+	valuesProvider values.Provider
+	client         client.Client
+	mux            *http.ServeMux
 }
 
 func NewServer(cfg Config) *Server {
 	s := &Server{
-		namespace:    cfg.Namespace,
-		defaultTTL:   cfg.DefaultTTL,
-		templatePath: cfg.TemplatePath,
-		valuesPath:   cfg.ValuesPath,
-		client:       cfg.Client,
-		mux:          http.NewServeMux(),
+		namespace:      cfg.Namespace,
+		defaultTTL:     cfg.DefaultTTL,
+		templatePath:   cfg.TemplatePath,
+		valuesProvider: cfg.ValuesProvider,
+		client:         cfg.Client,
+		mux:            http.NewServeMux(),
 	}
 	s.routes()
 	return s
+}
+
+func (s *Server) Start(ctx context.Context) error {
+	if s.valuesProvider == nil {
+		return nil
+	}
+	return s.valuesProvider.Start(ctx)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -59,6 +67,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/claim", s.handleClaim)
 	s.mux.HandleFunc("/release", s.handleRelease)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	s.mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -78,15 +90,14 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	claimName := fmt.Sprintf("claim-%s", claimID)
 	expiresAt := time.Now().UTC().Add(s.defaultTTL)
 
-	resourceTemplate, err := template.LoadResourceTemplate(s.templatePath, s.valuesPath, claimID)
-	// add id to returned payload 
-	resourceTemplate.ReturnValues["id"] = claimID
-
+	resourceTemplate, err := s.loadResourceTemplate(claimID)
+	// add id to returned payload
 	if err != nil {
 		log.Printf("failed to load resource template: %v", err)
 		http.Error(w, "failed to render templates", http.StatusInternalServerError)
 		return
 	}
+	resourceTemplate.ReturnValues["id"] = claimID
 	if len(resourceTemplate.RenderedObjects) == 0 {
 		http.Error(w, "rendered templates must include at least one resource", http.StatusInternalServerError)
 		return
@@ -133,6 +144,19 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, resourceTemplate.ReturnValues)
+}
+
+func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate, error) {
+	if s.valuesProvider == nil {
+		return template.ResourceTemplate{}, errors.New("values provider is not configured")
+	}
+
+	valuesData, err := s.valuesProvider.GetValues()
+	if err != nil {
+		return template.ResourceTemplate{}, err
+	}
+
+	return template.LoadResourceTemplateFromValuesData(s.templatePath, valuesData, claimID)
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
