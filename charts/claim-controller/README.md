@@ -1,6 +1,6 @@
 # claim-controller
 
-![Version: 0.1.2](https://img.shields.io/badge/Version-0.1.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.0](https://img.shields.io/badge/AppVersion-0.1.0-informational?style=flat-square)
+![Version: 0.1.3](https://img.shields.io/badge/Version-0.1.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.0](https://img.shields.io/badge/AppVersion-0.2.0-informational?style=flat-square)
 
 Namespaced claim API and controller for ephemeral Pod/Service workloads
 
@@ -13,7 +13,7 @@ Namespaced claim API and controller for ephemeral Pod/Service workloads
 | extraResources | object | `{}` | Extra Kubernetes resources to be deployed along with the release. expressed as a map of YAML documents to be merged |
 | image.pullPolicy | string | `"Always"` |  |
 | image.repository | string | `"ghcr.io/ia-generative/claim-controller"` |  |
-| image.tag | string | `"latest"` |  |
+| image.tag | string | `""` |  |
 | metrics.addr | string | `":8081"` |  |
 | namespace | string | `""` |  |
 | probe.addr | string | `":8082"` |  |
