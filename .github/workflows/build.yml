@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.get_version.outputs.tags }}
+      shell_image_tag: ${{ steps.get_shell_tags.outputs.tags }}
     permissions:
       packages: write
     steps:
@@ -50,9 +51,28 @@ jobs:
           echo "$TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
         fi
-    - name: Build and push
+    - name: Derive shell tags
+      id: get_shell_tags
+      run: |
+        echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+        while IFS= read -r tag; do
+          [ -z "$tag" ] && continue
+          echo "${tag}-shell" >> "$GITHUB_OUTPUT"
+        done <<< "${{ steps.get_version.outputs.tags }}"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+
+    - name: Build and push prod
       uses: docker/build-push-action@v6
       with:
         push: true
         pull: true
+        target: prod
         tags: ${{ steps.get_version.outputs.tags }}
+
+    - name: Build and push prod-shell
+      uses: docker/build-push-action@v6
+      with:
+        push: true
+        pull: true
+        target: prod-shell
+        tags: ${{ steps.get_shell_tags.outputs.tags }}
