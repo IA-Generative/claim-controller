@@ -19,7 +19,7 @@ spec:
       serviceAccountName: {{ include "claim-controller.serviceAccountName" . }}
       containers:
         - name: manager
-          image: {{ .Values.image.repository }}:{{ default .Values.image.tag .Chart.AppVersion }}
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: NAMESPACE

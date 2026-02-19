@@ -1,0 +1,4 @@
+{{- range $key, $value := .Values.extraResources }}
+---
+{{ include "common.tplvalues.render" (dict "value" $value "context" $) }}
+{{- end }}

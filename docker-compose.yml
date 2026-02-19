@@ -12,8 +12,11 @@ services:
       - "8082:8082"
     volumes:
       - ./:/workspace
-      - ./templates/values.yaml:/values/values.yaml:ro
+      # Mount the values file directly to the expected path in the container
+      - ./values/values.yaml:/values/values.yaml:ro
+      # Mount kubeconfig for in-cluster testing (optional, can be removed if not needed)
       - ${HOME}/.kube:/home/nonroot/.kube:ro
     environment:
+      # This environment variable is used by the controller to locate the values file and not fallback to configmap mode
       VALUES_PATH: /values/values.yaml
       KUBECONFIG: /home/nonroot/.kube/config

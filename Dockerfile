@@ -6,8 +6,9 @@ RUN go mod download
 RUN go install github.com/air-verse/air@latest
 
 COPY . .
+COPY templates/resources.yaml /templates/resources.yaml
 
-ENV TEMPLATE_PATH=/workspace/config/template/resources.yaml
+ENV TEMPLATE_PATH=/templates/resources.yaml
 ENV API_ADDR=:8080
 ENV METRICS_ADDR=:8081
 ENV PROBE_ADDR=:8082
@@ -31,9 +32,9 @@ WORKDIR /app
 RUN addgroup -S app && adduser -S -G app app
 
 COPY --from=builder /out/server /app/server
-COPY templates/resources.yaml /app/config/template/resources.yaml
+COPY templates/resources.yaml /templates/resources.yaml
 
-ENV TEMPLATE_PATH=/app/config/template/resources.yaml
+ENV TEMPLATE_PATH=/templates/resources.yaml
 ENV API_ADDR=:8080
 ENV METRICS_ADDR=:8081
 ENV PROBE_ADDR=:8082
@@ -48,9 +49,9 @@ FROM gcr.io/distroless/static:nonroot AS prod
 WORKDIR /app
 
 COPY --from=builder /out/server /app/server
-COPY templates/resources.yaml /app/config/template/resources.yaml
+COPY templates/resources.yaml /templates/resources.yaml
 
-ENV TEMPLATE_PATH=/app/config/template/resources.yaml
+ENV TEMPLATE_PATH=/templates/resources.yaml
 ENV API_ADDR=:8080
 ENV METRICS_ADDR=:8081
 ENV PROBE_ADDR=:8082

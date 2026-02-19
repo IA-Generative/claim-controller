@@ -9,75 +9,54 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	k8sinformers "k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nonot/claim-controller/internal/controller"
 	"github.com/nonot/claim-controller/internal/template"
+	"github.com/nonot/claim-controller/internal/values"
 )
 
 type Config struct {
-	Namespace           string
-	DefaultTTL          time.Duration
-	TemplatePath        string
-	ValuesPath          string
-	ValuesConfigMapName string
-	ValuesConfigMapKey  string
-	KubeClient          kubernetes.Interface
-	Client              client.Client
+	Namespace      string
+	DefaultTTL     time.Duration
+	TemplatePath   string
+	ValuesProvider values.Provider
+	Client         client.Client
 }
 
 type Server struct {
-	namespace           string
-	defaultTTL          time.Duration
-	templatePath        string
-	valuesPath          string
-	valuesConfigMapName string
-	valuesConfigMapKey  string
-	kubeClient          kubernetes.Interface
-	valuesInformer      toolscache.SharedIndexInformer
-	valuesMu            sync.RWMutex
-	valuesData          []byte
-	client              client.Client
-	mux                 *http.ServeMux
+	namespace      string
+	defaultTTL     time.Duration
+	templatePath   string
+	valuesProvider values.Provider
+	client         client.Client
+	mux            *http.ServeMux
 }
 
 func NewServer(cfg Config) *Server {
 	s := &Server{
-		namespace:           cfg.Namespace,
-		defaultTTL:          cfg.DefaultTTL,
-		templatePath:        cfg.TemplatePath,
-		valuesPath:          cfg.ValuesPath,
-		valuesConfigMapName: cfg.ValuesConfigMapName,
-		valuesConfigMapKey:  cfg.ValuesConfigMapKey,
-		kubeClient:          cfg.KubeClient,
-		client:              cfg.Client,
-		mux:                 http.NewServeMux(),
+		namespace:      cfg.Namespace,
+		defaultTTL:     cfg.DefaultTTL,
+		templatePath:   cfg.TemplatePath,
+		valuesProvider: cfg.ValuesProvider,
+		client:         cfg.Client,
+		mux:            http.NewServeMux(),
 	}
-	s.setupValuesInformer()
 	s.routes()
 	return s
 }
 
-func (s *Server) Start(ctx context.Context) {
-	if s.valuesInformer == nil {
-		return
+func (s *Server) Start(ctx context.Context) error {
+	if s.valuesProvider == nil {
+		return nil
 	}
-
-	go s.valuesInformer.Run(ctx.Done())
-	if !toolscache.WaitForCacheSync(ctx.Done(), s.valuesInformer.HasSynced) {
-		log.Printf("values informer cache sync failed")
-	}
+	return s.valuesProvider.Start(ctx)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -88,6 +67,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/claim", s.handleClaim)
 	s.mux.HandleFunc("/release", s.handleRelease)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	s.mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -164,74 +147,16 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate, error) {
-	if valuesData, ok := s.getValuesFromInformer(); ok {
-		return template.LoadResourceTemplateFromValuesData(s.templatePath, valuesData, claimID)
+	if s.valuesProvider == nil {
+		return template.ResourceTemplate{}, errors.New("values provider is not configured")
 	}
 
-	return template.LoadResourceTemplate(s.templatePath, s.valuesPath, claimID)
-}
-
-func (s *Server) setupValuesInformer() {
-	if s.kubeClient == nil || s.valuesConfigMapName == "" || s.valuesConfigMapKey == "" {
-		return
+	valuesData, err := s.valuesProvider.GetValues()
+	if err != nil {
+		return template.ResourceTemplate{}, err
 	}
 
-	factory := k8sinformers.NewSharedInformerFactoryWithOptions(
-		s.kubeClient,
-		0,
-		k8sinformers.WithNamespace(s.namespace),
-		k8sinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
-			options.FieldSelector = fields.OneTermEqualSelector("metadata.name", s.valuesConfigMapName).String()
-		}),
-	)
-
-	s.valuesInformer = factory.Core().V1().ConfigMaps().Informer()
-	s.valuesInformer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj any) {
-			s.updateValuesFromConfigMap(obj)
-		},
-		UpdateFunc: func(_, newObj any) {
-			s.updateValuesFromConfigMap(newObj)
-		},
-		DeleteFunc: func(_ any) {
-			s.setValuesData(nil)
-		},
-	})
-}
-
-func (s *Server) updateValuesFromConfigMap(obj any) {
-	cm, ok := obj.(*corev1.ConfigMap)
-	if !ok || cm == nil {
-		return
-	}
-
-	value, ok := cm.Data[s.valuesConfigMapKey]
-	if !ok || strings.TrimSpace(value) == "" {
-		log.Printf("values configmap key %q not found or empty in %s/%s", s.valuesConfigMapKey, s.namespace, s.valuesConfigMapName)
-		s.setValuesData(nil)
-		return
-	}
-
-	s.setValuesData([]byte(value))
-}
-
-func (s *Server) setValuesData(data []byte) {
-	s.valuesMu.Lock()
-	defer s.valuesMu.Unlock()
-	if data == nil {
-		s.valuesData = nil
-		return
-	}
-	s.valuesData = append([]byte(nil), data...)
-}
-
-func (s *Server) getValuesFromInformer() ([]byte, bool) {
-	s.valuesMu.RLock()
-	defer s.valuesMu.RUnlock()
-	if len(s.valuesData) == 0 {
-		return nil, false
-	}
-	return append([]byte(nil), s.valuesData...), true
+	return template.LoadResourceTemplateFromValuesData(s.templatePath, valuesData, claimID)
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {

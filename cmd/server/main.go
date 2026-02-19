@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,6 +26,7 @@ import (
 	"github.com/nonot/claim-controller/internal/api"
 	"github.com/nonot/claim-controller/internal/config"
 	"github.com/nonot/claim-controller/internal/controller"
+	"github.com/nonot/claim-controller/internal/values"
 )
 
 func main() {
@@ -135,19 +137,18 @@ func main() {
 	}
 
 	apiServer := api.NewServer(api.Config{
-		Namespace:           namespace,
-		DefaultTTL:          defaultTTL,
-		TemplatePath:        templatePath,
-		ValuesPath:          valuesPath,
-		ValuesConfigMapName: valuesConfigMapName,
-		ValuesConfigMapKey:  valuesConfigMapKey,
-		KubeClient:          kubeClient,
-		Client:              manager.GetClient(),
+		Namespace:      namespace,
+		DefaultTTL:     defaultTTL,
+		TemplatePath:   templatePath,
+		ValuesProvider: resolveValuesProvider(logger, kubeClient, namespace, valuesConfigMapName, valuesConfigMapKey, valuesPath),
+		Client:         manager.GetClient(),
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	apiServer.Start(ctx)
+	if err := apiServer.Start(ctx); err != nil {
+		panic(fmt.Errorf("start api server dependencies: %w", err))
+	}
 
 	httpServer := &http.Server{
 		Addr:              apiAddr,
@@ -178,6 +179,26 @@ func main() {
 	if err := manager.Start(ctx); err != nil {
 		panic(fmt.Errorf("run manager: %w", err))
 	}
+}
+
+func resolveValuesProvider(logger logr.Logger, kubeClient kubernetes.Interface, namespace, configMapName, configMapKey, valuesPath string) values.Provider {
+	if configMapKey != "" && configMapName != "" {
+		configMapProvider, err := values.NewConfigMapProvider(kubeClient, namespace, configMapName, configMapKey)
+		if err == nil {
+			logger.Info("using configmap values provider", "source", configMapProvider.Description())
+			return configMapProvider
+		}
+	}
+
+	if valuesPath != "" {
+		fileProvider, err := values.NewFileProvider(valuesPath)
+		if err != nil {
+		}
+		logger.Info("using file values provider", "source", fileProvider.Description())
+		return fileProvider
+	}
+
+	panic(fmt.Errorf("no valid values provider found, please provide either configmap or file values"))
 }
 
 func firstNonEmpty(values ...string) string {

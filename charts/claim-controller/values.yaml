@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/ia-generative/claim-controller
-  tag: dev
+  tag: latest
   pullPolicy: Always
 
 serviceAccount:
@@ -32,9 +32,9 @@ valuesTemplate: |
     containerPort: 8932
     args: 
     - --snapshot-mode=full
-    - --port 8932
-    - --host 0.0.0.0
-    - --allowed-hosts *
+    - --port=8932
+    - --host=0.0.0.0
+    - --allowed-hosts=*
 
   service:
     portName: http
@@ -107,3 +107,15 @@ resources:
   requests:
     cpu: 200m
     memory: 500M
+
+# -- Extra Kubernetes resources to be deployed along with the release.
+# expressed as a map of YAML documents to be merged
+extraResources: {}
+# resourceA:
+#   apiVersion: v1
+#   kind: ConfigMap
+#   metadata: ...
+# resourceB:
+#   apiVersion: v1
+#   kind: ConfigMap
+#   metadata: ...

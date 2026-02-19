@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,9 +45,6 @@ func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate
 }
 
 func LoadResourceTemplateFromValuesData(templatePath string, valuesData []byte, id string) (ResourceTemplate, error) {
-	log.Printf("Loading values from provided bytes")
-	log.Printf("Loading template from %s", templatePath)
-
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)
