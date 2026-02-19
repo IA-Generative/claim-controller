@@ -58,14 +58,7 @@ jobs:
     - name: Update Chart.yaml with new version and document it
       if: ${{ steps.export-pr.outputs.pr_branch_name != '' }}
       run: |
-        VERSION='${{ steps.release.outputs.version }}'
-        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-          VERSION=$(yq e '.appVersion' charts/claim-controller/Chart.yaml)
-        fi
-        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-          VERSION="0.1.0"
-        fi
-        export VERSION
+        export VERSION=$(jq -r '.["."]' < .release-please-manifest.json)
         yq e -i '.appVersion = env(VERSION)' charts/claim-controller/Chart.yaml
 
         export CHART_VERSION=$(yq .version charts/claim-controller/Chart.yaml)
