@@ -128,6 +128,10 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	if ownerRef := s.valuesProvider.GetOwnerReference(); ownerRef != nil {
+		claim.OwnerReferences = []metav1.OwnerReference{*ownerRef}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 

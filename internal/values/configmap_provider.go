@@ -24,6 +24,7 @@ type ConfigMapProvider struct {
 
 	mu   sync.RWMutex
 	data []byte
+	ref  *metav1.OwnerReference
 }
 
 func NewConfigMapProvider(kubeClient kubernetes.Interface, namespace, name, key string) (*ConfigMapProvider, error) {
@@ -70,6 +71,16 @@ func (p *ConfigMapProvider) GetValues() ([]byte, error) {
 	return append([]byte(nil), p.data...), nil
 }
 
+func (p *ConfigMapProvider) GetOwnerReference() *metav1.OwnerReference {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.ref == nil {
+		return nil
+	}
+	refCopy := *p.ref
+	return &refCopy
+}
+
 func (p *ConfigMapProvider) Description() string {
 	return fmt.Sprintf("configmap:%s/%s#%s", p.namespace, p.name, p.key)
 }
@@ -85,7 +96,7 @@ func (p *ConfigMapProvider) loadInitial(ctx context.Context) error {
 		return fmt.Errorf("configmap %s/%s key %q not found or empty", p.namespace, p.name, p.key)
 	}
 
-	p.setData([]byte(value))
+	p.setDataAndRef([]byte(value), ownerReferenceFromConfigMap(cm))
 	return nil
 }
 
@@ -108,7 +119,7 @@ func (p *ConfigMapProvider) setupInformer() {
 			p.updateFromObject(newObj)
 		},
 		DeleteFunc: func(_ any) {
-			p.setData(nil)
+			p.setDataAndRef(nil, nil)
 		},
 	})
 }
@@ -121,19 +132,42 @@ func (p *ConfigMapProvider) updateFromObject(obj any) {
 
 	value, ok := cm.Data[p.key]
 	if !ok || strings.TrimSpace(value) == "" {
-		p.setData(nil)
+		p.setDataAndRef(nil, nil)
 		return
 	}
 
-	p.setData([]byte(value))
+	p.setDataAndRef([]byte(value), ownerReferenceFromConfigMap(cm))
 }
 
-func (p *ConfigMapProvider) setData(data []byte) {
+func (p *ConfigMapProvider) setDataAndRef(data []byte, ref *metav1.OwnerReference) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if data == nil {
 		p.data = nil
+		p.ref = nil
 		return
 	}
 	p.data = append([]byte(nil), data...)
+	if ref == nil {
+		p.ref = nil
+		return
+	}
+	refCopy := *ref
+	p.ref = &refCopy
+}
+
+func ownerReferenceFromConfigMap(cm *corev1.ConfigMap) *metav1.OwnerReference {
+	if cm == nil {
+		return nil
+	}
+	return &metav1.OwnerReference{
+		APIVersion: "v1",
+		Kind:       "ConfigMap",
+		Name:       cm.Name,
+		UID:        cm.UID,
+		BlockOwnerDeletion: func() *bool {
+			b := true
+			return &b
+		}(),
+	}
 }

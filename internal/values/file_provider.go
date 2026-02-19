@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type FileProvider struct {
@@ -30,6 +32,10 @@ func (p *FileProvider) Start(context.Context) error {
 
 func (p *FileProvider) GetValues() ([]byte, error) {
 	return append([]byte(nil), p.data...), nil
+}
+
+func (p *FileProvider) GetOwnerReference() *metav1.OwnerReference {
+	return nil
 }
 
 func (p *FileProvider) Description() string {
