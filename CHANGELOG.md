@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/IA-Generative/claim-controller/compare/v0.2.0...v0.3.0) (2026-02-20)
+
+
+### Features
+
+* add common template value rendering function in _helpers.tpl ([2d79414](https://github.com/IA-Generative/claim-controller/commit/2d794142fbe480c7aa060ceb4e652299ab3e655d))
+
+
+### Bug Fixes
+
+* update LoadResourceTemplate functions to include namespace param… ([#10](https://github.com/IA-Generative/claim-controller/issues/10)) ([a949783](https://github.com/IA-Generative/claim-controller/commit/a949783e035653f8655d07fb8f8816891e44c1fa))
+
 ## [0.2.0](https://github.com/IA-Generative/claim-controller/compare/v0.1.1...v0.2.0) (2026-02-19)
 
 
