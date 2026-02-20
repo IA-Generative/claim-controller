@@ -12,16 +12,20 @@ serviceAccount:
 namespace: ""
 
 api:
-  addr: ":8080"
+  # default in code: 0.0.0.0:8080
+  addr: ""
 
 metrics:
-  addr: ":8081"
+  # default in code: 0.0.0.0:8081
+  addr: ""
 
-probe:
-  addr: ":8082"
-
-defaultTTL: 10m
-reconcileInterval: 30s
+# App Configuration
+# default in code: 3m
+defaultTTL: ""
+# default in code: 10m
+maxTTL: ""
+# default in code: 30s
+reconcileInterval: ""
 
 valuesTemplate: |
   workload:
@@ -113,9 +117,6 @@ service:
   type: ClusterIP
   port: 80
   metricsPort: 8081
-  externalName:
-    enabled: true
-    name: claim-wrapper
 
 serviceMonitor:
   enabled: true

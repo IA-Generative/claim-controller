@@ -4,11 +4,12 @@ Namespaced Kubernetes operator + HTTP API for claim-based ephemeral workloads.
 
 ## Behavior
 
-- `POST /claim` takes no parameters.
+- `POST /claim` accepts optional JSON body `{ "ttl": "<duration>" }`.
+- `POST /renew/{id}` extends claim expiration with the same TTL rules.
 - The API creates a managed claim object (`ConfigMap`) with random Pod/Service names.
 - Controller reconciles claims and creates a Pod + Service from a Helm-style template file + separate `values.yaml` loaded at startup.
 - API returns the generated service FQDN: `<service>.<namespace>.svc.cluster.local`.
-- Claims expire after TTL (default `10m`), and controller deletes claim resources.
+- Claims expire after TTL (default `10m`), client-provided TTL is capped by `maxTTL`, and controller deletes claim resources.
 - Metrics are exposed on controller-runtime metrics endpoint (`/metrics`) and include:
   - `claim_controller_claims_created_total`
   - `claim_controller_claims_released_total`
@@ -60,6 +61,7 @@ Supported environment variables (with defaults):
 - `METRICS_ADDR` (default: `:8081`)
 - `PROBE_ADDR` (default: `:8082`)
 - `DEFAULT_TTL` (default: `10m`)
+- `MAX_TTL` (default: `10m`)
 - `RECONCILE_INTERVAL` (default: `30s`)
 
 ## Hot reload with Air
@@ -76,6 +78,22 @@ Create a claim:
 
 ```bash
 curl -X POST http://localhost:8080/claim
+```
+
+Create a claim with custom TTL:
+
+```bash
+curl -X POST http://localhost:8080/claim \
+  -H 'Content-Type: application/json' \
+  -d '{"ttl":"5m"}'
+```
+
+Renew a claim:
+
+```bash
+curl -X POST http://localhost:8080/renew/<claim-id> \
+  -H 'Content-Type: application/json' \
+  -d '{"ttl":"2m"}'
 ```
 
 ## Deploy (namespaced, non-cluster-wide)

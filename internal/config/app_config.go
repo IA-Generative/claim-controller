@@ -16,6 +16,7 @@ type AppConfig struct {
 	MetricsAddr       string `json:"metricsAddr" yaml:"metricsAddr"`
 	ProbeAddr         string `json:"probeAddr" yaml:"probeAddr"`
 	DefaultTTL        string `json:"defaultTTL" yaml:"defaultTTL"`
+	MaxTTL            string `json:"maxTTL" yaml:"maxTTL"`
 	ReconcileInterval string `json:"reconcileInterval" yaml:"reconcileInterval"`
 }
 

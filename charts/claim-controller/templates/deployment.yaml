@@ -26,10 +26,26 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: VALUES_CONFIGMAP_NAME
-              value: {{ include "claim-controller.fullname" . }}-values
-            - name: VALUES_CONFIGMAP_KEY
-              value: values.yaml
+            {{- if .Values.api.addr }}
+            - name: API_ADDR
+              value: {{ .Values.api.addr | quote }}
+            {{- end }}
+            {{- if .Values.metrics.addr }}
+            - name: METRICS_ADDR
+              value: {{ .Values.metrics.addr | quote }}
+            {{- end }}
+            {{- if .Values.defaultTTL }}
+            - name: DEFAULT_TTL
+              value: {{ .Values.defaultTTL | quote }}
+            {{- end }}
+            {{- if .Values.maxTTL }}
+            - name: MAX_TTL
+              value: {{ .Values.maxTTL | quote }}
+            {{- end }}
+            {{- if .Values.reconcileInterval }}
+            - name: RECONCILE_INTERVAL
+              value: {{ .Values.reconcileInterval | quote }}
+            {{- end }}
           ports:
             - name: api
               containerPort: 8080
@@ -39,32 +55,3 @@ spec:
               containerPort: 8082
           resources:
 {{ toYaml .Values.resources | indent 12 }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "claim-controller.fullname" . }}
-  namespace: {{ $ns }}
-spec:
-  type: {{ .Values.service.type }}
-  selector:
-    app.kubernetes.io/name: {{ include "claim-controller.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
-  ports:
-    - name: http
-      port: {{ .Values.service.port }}
-      targetPort: api
-    - name: metrics
-      port: {{ .Values.service.metricsPort }}
-      targetPort: metrics
-{{- if .Values.service.externalName.enabled }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ default (printf "%s-external" (include "claim-controller.fullname" .)) .Values.service.externalName.name }}
-  namespace: {{ $ns }}
-spec:
-  type: ExternalName
-  externalName: {{ include "claim-controller.fullname" . }}.{{ $ns }}.svc.cluster.local
-{{- end }}

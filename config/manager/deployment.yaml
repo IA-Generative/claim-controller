@@ -21,6 +21,7 @@ spec:
           args:
             - --namespace=default
             - --values-path=/app/config/template/values.yaml
+            - --max-ttl=10m
             - --api-addr=:8080
             - --metrics-addr=:8081
           ports:

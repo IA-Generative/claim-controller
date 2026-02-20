@@ -9,11 +9,12 @@ Namespaced claim API and controller for ephemeral Pod/Service workloads
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | api.addr | string | `":8080"` |  |
-| defaultTTL | string | `"10m"` |  |
+| defaultTTL | string | `"3m"` |  |
 | extraResources | object | `{}` | Extra Kubernetes resources to be deployed along with the release. expressed as a map of YAML documents to be merged |
 | image.pullPolicy | string | `"Always"` |  |
 | image.repository | string | `"ghcr.io/ia-generative/claim-controller"` |  |
 | image.tag | string | `""` |  |
+| maxTTL | string | `"10m"` |  |
 | metrics.addr | string | `":8081"` |  |
 | namespace | string | `""` |  |
 | probe.addr | string | `":8082"` |  |

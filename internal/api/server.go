@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -56,6 +57,7 @@ var claimLifetimeExpectedRatio = promauto.With(metrics.Registry).NewHistogram(pr
 type Config struct {
 	Namespace      string
 	DefaultTTL     time.Duration
+	MaxTTL         time.Duration
 	TemplatePath   string
 	ValuesProvider values.Provider
 	Client         client.Client
@@ -64,6 +66,7 @@ type Config struct {
 type Server struct {
 	namespace      string
 	defaultTTL     time.Duration
+	maxTTL         time.Duration
 	templatePath   string
 	valuesProvider values.Provider
 	client         client.Client
@@ -71,10 +74,23 @@ type Server struct {
 	mux            *http.ServeMux
 }
 
+type claimRequest struct {
+	TTL string `json:"ttl"`
+}
+
 func NewServer(cfg Config) *Server {
+	maxTTL := cfg.MaxTTL
+	if maxTTL <= 0 {
+		maxTTL = cfg.DefaultTTL
+	}
+	if maxTTL < cfg.DefaultTTL {
+		maxTTL = cfg.DefaultTTL
+	}
+
 	s := &Server{
 		namespace:      cfg.Namespace,
 		defaultTTL:     cfg.DefaultTTL,
+		maxTTL:         maxTTL,
 		templatePath:   cfg.TemplatePath,
 		valuesProvider: cfg.ValuesProvider,
 		client:         cfg.Client,
@@ -149,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("/claim", s.handleClaim)
 	s.mux.HandleFunc("/release/{id}", s.handleRelease)
+	s.mux.HandleFunc("/renew/{id}", s.handleRenew)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -165,9 +182,15 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ttl, err := s.ttlFromRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	claimID := randomSuffix(8)
 	claimName := fmt.Sprintf("claim-%s", claimID)
-	expiresAt := time.Now().UTC().Add(s.defaultTTL)
+	expiresAt := time.Now().UTC().Add(ttl)
 
 	resourceTemplate, err := s.loadResourceTemplate(claimID)
 	// add id to returned payload
@@ -250,8 +273,43 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	body["data"] = resourceTemplate.ReturnValues
 	body["releasePath"] = fmt.Sprintf("/release/%s", claimID)
 	body["releaseMethod"] = http.MethodPost
+	body["renewPath"] = fmt.Sprintf("/renew/%s", claimID)
+	body["renewMethod"] = http.MethodPost
 
 	writeJSON(w, http.StatusCreated, body)
+}
+
+func (s *Server) ttlFromRequest(r *http.Request) (time.Duration, error) {
+	if r.Body == nil {
+		return s.defaultTTL, nil
+	}
+
+	var req claimRequest
+	dec := json.NewDecoder(r.Body)
+	err := dec.Decode(&req)
+	if errors.Is(err, io.EOF) {
+		return s.defaultTTL, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if strings.TrimSpace(req.TTL) == "" {
+		return s.defaultTTL, nil
+	}
+
+	ttl, err := time.ParseDuration(strings.TrimSpace(req.TTL))
+	if err != nil {
+		return 0, fmt.Errorf("invalid ttl duration")
+	}
+	if ttl <= 0 {
+		return 0, fmt.Errorf("ttl must be greater than 0")
+	}
+	if ttl > s.maxTTL {
+		return s.maxTTL, nil
+	}
+
+	return ttl, nil
 }
 
 func (s *Server) waitForClaimReady(ctx context.Context, claimName string, timeout time.Duration) error {
@@ -317,26 +375,21 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	claimList := &corev1.ConfigMapList{}
-	if err := s.client.List(ctx, claimList, client.InNamespace(s.namespace), client.MatchingLabels{controller.ClaimLabelKeyId: claimID}); err != nil {
-		log.Printf("failed to list claims: %v", err)
-		if apierrors.IsNotFound(err) {
+	claims, err := s.findManagedClaimsByID(ctx, claimID)
+	if err != nil {
+		if errors.Is(err, errClaimNotFound) {
 			http.Error(w, "claim not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, errClaimNotManaged) {
+			http.Error(w, "claim not managed by controller", http.StatusForbidden)
 			return
 		}
 		http.Error(w, "failed to load claim", http.StatusInternalServerError)
 		return
 	}
-	if len(claimList.Items) == 0 {
-		http.Error(w, "claim not found", http.StatusNotFound)
-		return
-	}
-	for _, claim := range claimList.Items {
-		if claim.Labels[controller.ManagedByLabelKey] != controller.ManagedByLabelValue {
-			http.Error(w, "claim not managed by controller", http.StatusForbidden)
-			return
-		}
 
+	for _, claim := range claims {
 		if err := s.client.Delete(ctx, claim.DeepCopy()); err != nil {
 			if apierrors.IsNotFound(err) {
 				http.Error(w, "claim not found", http.StatusNotFound)
@@ -353,8 +406,127 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 			claimLifetimeExpectedRatio.Observe(ratio)
 		}
 	}
-	claimsReleasedTotal.Add(float64(len(claimList.Items)))
+	claimsReleasedTotal.Add(float64(len(claims)))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	claimID := strings.TrimSpace(r.PathValue("id"))
+	if claimID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ttl, err := s.ttlFromRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	claims, err := s.findManagedClaimsByID(ctx, claimID)
+	if err != nil {
+		if errors.Is(err, errClaimNotFound) {
+			http.Error(w, "claim not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, errClaimNotManaged) {
+			http.Error(w, "claim not managed by controller", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "failed to load claim", http.StatusInternalServerError)
+		return
+	}
+
+	updatedClaim, err := s.renewClaim(ctx, claims[0], ttl)
+	if err != nil {
+		if errors.Is(err, errMaxTTLReached) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to renew claim", http.StatusInternalServerError)
+		return
+	}
+
+	body := map[string]any{
+		"status":      "ok",
+		"id":          claimID,
+		"expiresAt":   updatedClaim.Annotations[controller.ExpiresAtAnnotationKey],
+		"renewPath":   fmt.Sprintf("/renew/%s", claimID),
+		"renewMethod": http.MethodPost,
+	}
+
+	writeJSON(w, http.StatusOK, body)
+}
+
+var errClaimNotFound = errors.New("claim not found")
+var errClaimNotManaged = errors.New("claim not managed by controller")
+var errMaxTTLReached = errors.New("max ttl already reached")
+
+func (s *Server) findManagedClaimsByID(ctx context.Context, claimID string) ([]corev1.ConfigMap, error) {
+
+	claimList := &corev1.ConfigMapList{}
+	if err := s.client.List(ctx, claimList, client.InNamespace(s.namespace), client.MatchingLabels{controller.ClaimLabelKeyId: claimID}); err != nil {
+		log.Printf("failed to list claims: %v", err)
+		if apierrors.IsNotFound(err) {
+			return nil, errClaimNotFound
+		}
+		return nil, err
+	}
+	if len(claimList.Items) == 0 {
+		return nil, errClaimNotFound
+	}
+	for _, claim := range claimList.Items {
+		if claim.Labels[controller.ManagedByLabelKey] != controller.ManagedByLabelValue {
+			return nil, errClaimNotManaged
+		}
+	}
+
+	return claimList.Items, nil
+}
+
+func (s *Server) renewClaim(ctx context.Context, claim corev1.ConfigMap, ttl time.Duration) (*corev1.ConfigMap, error) {
+	now := time.Now().UTC()
+	maxExpiresAt := claim.CreationTimestamp.Time.UTC().Add(s.maxTTL)
+	if maxExpiresAt.Before(now) || maxExpiresAt.Equal(now) {
+		return nil, errMaxTTLReached
+	}
+
+	requestedExpiresAt := now.Add(ttl)
+	newExpiresAt := requestedExpiresAt
+	if newExpiresAt.After(maxExpiresAt) {
+		newExpiresAt = maxExpiresAt
+	}
+
+	updated := claim.DeepCopy()
+	if updated.Annotations == nil {
+		updated.Annotations = map[string]string{}
+	}
+	updated.Annotations[controller.ExpiresAtAnnotationKey] = newExpiresAt.Format(time.RFC3339)
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &corev1.ConfigMap{}
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(updated), current); err != nil {
+			return err
+		}
+		if current.Annotations == nil {
+			current.Annotations = map[string]string{}
+		}
+		current.Annotations[controller.ExpiresAtAnnotationKey] = newExpiresAt.Format(time.RFC3339)
+		return s.client.Update(ctx, current)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updated, nil
 }
 
 func claimLifetimeRatio(claim corev1.ConfigMap) (float64, bool) {

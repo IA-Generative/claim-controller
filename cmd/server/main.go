@@ -40,6 +40,7 @@ func main() {
 		apiAddr             string
 		metricsAddr         string
 		defaultTTL          time.Duration
+		maxTTL              time.Duration
 		reconcileInterval   time.Duration
 		probeAddr           string
 		controllerLogLevel  int
@@ -53,6 +54,7 @@ func main() {
 		defaultMetricsAddr       = "0.0.0.0:8081"
 		defaultProbeAddr         = "0.0.0.0:8082"
 		defaultTTLValue          = 3 * time.Minute
+		defaultMaxTTLValue       = 10 * time.Minute
 		defaultReconcileInterval = 30 * time.Second
 	)
 
@@ -69,6 +71,7 @@ func main() {
 	metricsAddrDefault := resolveString("METRICS_ADDR", os.Getenv("METRICS_ADDR"), defaultMetricsAddr)
 	probeAddrDefault := resolveString("PROBE_ADDR", os.Getenv("PROBE_ADDR"), defaultProbeAddr)
 	defaultTTLDefault := resolveDuration("DEFAULT_TTL", os.Getenv("DEFAULT_TTL"), defaultTTLValue)
+	maxTTLDefault := resolveDuration("MAX_TTL", os.Getenv("MAX_TTL"), defaultMaxTTLValue)
 	reconcileIntervalDefault := resolveDuration("RECONCILE_INTERVAL", os.Getenv("RECONCILE_INTERVAL"), defaultReconcileInterval)
 
 	flag.StringVar(&namespace, "namespace", namespaceDefault, "namespace watched and managed by the controller")
@@ -80,9 +83,14 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-addr", metricsAddrDefault, "metrics listen address")
 	flag.StringVar(&probeAddr, "health-probe-addr", probeAddrDefault, "probe listen address")
 	flag.DurationVar(&defaultTTL, "default-ttl", defaultTTLDefault, "default claim lifetime")
+	flag.DurationVar(&maxTTL, "max-ttl", maxTTLDefault, "maximum claim lifetime")
 	flag.DurationVar(&reconcileInterval, "reconcile-interval", reconcileIntervalDefault, "controller periodic reconcile interval")
 	flag.IntVar(&controllerLogLevel, "zap-log-level", 0, "zap logger level")
 	flag.Parse()
+
+	if maxTTL < defaultTTL {
+		maxTTL = defaultTTL
+	}
 
 	logLevel := zapcore.Level(-controllerLogLevel)
 	ctrl.SetLogger(zap.New(
@@ -139,6 +147,7 @@ func main() {
 	apiServer := api.NewServer(api.Config{
 		Namespace:      namespace,
 		DefaultTTL:     defaultTTL,
+		MaxTTL:         maxTTL,
 		TemplatePath:   templatePath,
 		ValuesProvider: resolveValuesProvider(logger, kubeClient, namespace, valuesConfigMapName, valuesConfigMapKey, valuesPath),
 		Client:         manager.GetClient(),
@@ -175,7 +184,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("starting manager", "namespace", namespace, "apiAddr", apiAddr, "metricsAddr", metricsAddr, "templatePath", templatePath, "valuesPath", valuesPath)
+	logger.Info("starting manager", "namespace", namespace, "apiAddr", apiAddr, "metricsAddr", metricsAddr, "templatePath", templatePath, "valuesPath", valuesPath, "defaultTTL", defaultTTL.String(), "maxTTL", maxTTL.String())
 	if err := manager.Start(ctx); err != nil {
 		panic(fmt.Errorf("run manager: %w", err))
 	}
