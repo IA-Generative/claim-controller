@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -12,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -38,6 +41,14 @@ type ClaimReconciler struct {
 	DefaultTTL        time.Duration
 	ReconcileInterval time.Duration
 	Recorder          record.EventRecorder
+}
+
+type resourceReadiness struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Ready     bool   `json:"ready"`
+	Message   string `json:"message"`
 }
 
 func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -83,16 +94,179 @@ func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
+	allReady, summary, resourcesStatus, err := r.evaluateClaimReadiness(ctx, claim)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.updateClaimReadinessStatus(ctx, claim, allReady, summary, resourcesStatus); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	_ = r.refreshMetrics(ctx)
 	nextCheck := time.Until(expiresAt)
 	if nextCheck < 5*time.Second {
 		nextCheck = 5 * time.Second
+	}
+	if !allReady && nextCheck > 3*time.Second {
+		nextCheck = 3 * time.Second
 	}
 	if r.ReconcileInterval > 0 && r.ReconcileInterval < nextCheck {
 		nextCheck = r.ReconcileInterval
 	}
 
 	return ctrl.Result{RequeueAfter: nextCheck}, nil
+}
+
+func (r *ClaimReconciler) evaluateClaimReadiness(ctx context.Context, claim *corev1.ConfigMap) (bool, string, []resourceReadiness, error) {
+	resources, err := templatesFromClaim(claim)
+	if err != nil {
+		return false, "", nil, err
+	}
+
+	allReady := true
+	readyCount := 0
+	statuses := make([]resourceReadiness, 0, len(resources))
+
+	for _, resourceTemplate := range resources {
+		resourceObj := &unstructured.Unstructured{}
+		resourceObj.SetGroupVersionKind(resourceTemplate.GroupVersionKind())
+		resourceObj.SetName(resourceTemplate.GetName())
+
+		isNamespaced, err := r.isNamespacedResource(resourceObj)
+		if err != nil {
+			return false, "", nil, fmt.Errorf("resolve resource scope for %s %s: %w", resourceObj.GetKind(), resourceObj.GetName(), err)
+		}
+		if isNamespaced {
+			resourceObj.SetNamespace(claim.Namespace)
+		}
+
+		if err := r.Get(ctx, client.ObjectKeyFromObject(resourceObj), resourceObj); err != nil {
+			if apierrors.IsNotFound(err) {
+				allReady = false
+				statuses = append(statuses, resourceReadiness{
+					Kind:      resourceTemplate.GetKind(),
+					Name:      resourceTemplate.GetName(),
+					Namespace: resourceObj.GetNamespace(),
+					Ready:     false,
+					Message:   "not created yet",
+				})
+				continue
+			}
+			return false, "", nil, err
+		}
+
+		ready, message := assessResourceReadiness(resourceObj)
+		if ready {
+			readyCount++
+		} else {
+			allReady = false
+		}
+
+		statuses = append(statuses, resourceReadiness{
+			Kind:      resourceObj.GetKind(),
+			Name:      resourceObj.GetName(),
+			Namespace: resourceObj.GetNamespace(),
+			Ready:     ready,
+			Message:   message,
+		})
+	}
+
+	summary := fmt.Sprintf("%d/%d resources ready", readyCount, len(resources))
+	if allReady {
+		summary = "all resources ready"
+	}
+
+	return allReady, summary, statuses, nil
+}
+
+func (r *ClaimReconciler) updateClaimReadinessStatus(ctx context.Context, claim *corev1.ConfigMap, allReady bool, summary string, resources []resourceReadiness) error {
+	resourcesJSON, err := json.Marshal(resources)
+	if err != nil {
+		return err
+	}
+
+	statusValue := "pending"
+	if allReady {
+		statusValue = "ready"
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &corev1.ConfigMap{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(claim), current); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+
+		if current.Data == nil {
+			current.Data = map[string]string{}
+		}
+
+		if current.Data[ClaimStatusDataKey] == statusValue &&
+			current.Data[ClaimStatusMessageDataKey] == summary &&
+			current.Data[ClaimResourcesStatusDataKey] == string(resourcesJSON) {
+			return nil
+		}
+
+		current.Data[ClaimStatusDataKey] = statusValue
+		current.Data[ClaimStatusMessageDataKey] = summary
+		current.Data[ClaimResourcesStatusDataKey] = string(resourcesJSON)
+
+		return r.Update(ctx, current)
+	})
+}
+
+func assessResourceReadiness(obj *unstructured.Unstructured) (bool, string) {
+	switch strings.ToLower(obj.GetKind()) {
+	case "pod":
+		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+		if phase == "Succeeded" {
+			return true, "pod succeeded"
+		}
+		if phase == "Failed" {
+			return false, "pod failed"
+		}
+		ready, readyFound := conditionStatus(obj.Object, "status", "conditions", "Ready")
+		if phase == "Running" && readyFound && ready {
+			return true, "pod ready"
+		}
+		return false, fmt.Sprintf("pod phase=%s", phase)
+	case "deployment":
+		desiredReplicas, _, _ := unstructured.NestedInt64(obj.Object, "spec", "replicas")
+		if desiredReplicas == 0 {
+			desiredReplicas = 1
+		}
+		readyReplicas, _, _ := unstructured.NestedInt64(obj.Object, "status", "readyReplicas")
+		available, availableFound := conditionStatus(obj.Object, "status", "conditions", "Available")
+		if readyReplicas >= desiredReplicas && (!availableFound || available) {
+			return true, fmt.Sprintf("deployment ready (%d/%d)", readyReplicas, desiredReplicas)
+		}
+		return false, fmt.Sprintf("deployment not ready (%d/%d)", readyReplicas, desiredReplicas)
+	default:
+		return true, "resource exists"
+	}
+}
+
+func conditionStatus(object map[string]any, section string, field string, conditionType string) (bool, bool) {
+	conditions, found, _ := unstructured.NestedSlice(object, section, field)
+	if !found {
+		return false, false
+	}
+	for _, rawCondition := range conditions {
+		conditionMap, ok := rawCondition.(map[string]any)
+		if !ok {
+			continue
+		}
+		conditionName, _, _ := unstructured.NestedString(conditionMap, "type")
+		if !strings.EqualFold(conditionName, conditionType) {
+			continue
+		}
+		statusText, _, _ := unstructured.NestedString(conditionMap, "status")
+		statusBool, err := strconv.ParseBool(strings.ToLower(statusText))
+		if err != nil {
+			return false, true
+		}
+		return statusBool, true
+	}
+	return false, false
 }
 
 func (r *ClaimReconciler) cleanupExpiredClaims(ctx context.Context) error {
