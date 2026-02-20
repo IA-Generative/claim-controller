@@ -119,7 +119,10 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		Data: map[string]string{
-			controller.RenderedResourcesDataKey: string(renderedResourcesBytes),
+			controller.RenderedResourcesDataKey:    string(renderedResourcesBytes),
+			controller.ClaimStatusDataKey:          "pending",
+			controller.ClaimStatusMessageDataKey:   "waiting for resources to be created",
+			controller.ClaimResourcesStatusDataKey: "[]",
 		},
 	}
 
@@ -142,7 +145,17 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.waitForClaimReady(r.Context(), claimName, 90*time.Second); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			http.Error(w, "timed out waiting for claim resources to become ready", http.StatusGatewayTimeout)
+			return
+		}
+		http.Error(w, "failed while waiting for claim readiness", http.StatusInternalServerError)
+		return
+	}
+
 	body := make(map[string]any)
+	body["status"] = "ok"
 	body["id"] = claimID
 	body["expiresAt"] = expiresAt.Format(time.RFC3339)
 	body["data"] = resourceTemplate.ReturnValues
@@ -150,6 +163,41 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	body["releaseMethod"] = http.MethodPost
 
 	writeJSON(w, http.StatusCreated, body)
+}
+
+func (s *Server) waitForClaimReady(ctx context.Context, claimName string, timeout time.Duration) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		claim := &corev1.ConfigMap{}
+		err := s.client.Get(waitCtx, client.ObjectKey{Namespace: s.namespace, Name: claimName}, claim)
+		if err == nil {
+			status := strings.TrimSpace(claim.Data[controller.ClaimStatusDataKey])
+			if strings.EqualFold(status, "ready") {
+				return nil
+			}
+			if strings.EqualFold(status, "failed") {
+				message := strings.TrimSpace(claim.Data[controller.ClaimStatusMessageDataKey])
+				if message == "" {
+					message = "resource readiness failed"
+				}
+				return errors.New(message)
+			}
+		}
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate, error) {
@@ -162,7 +210,7 @@ func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate
 		return template.ResourceTemplate{}, err
 	}
 
-	return template.LoadResourceTemplateFromValuesData(s.templatePath, valuesData, claimID)
+	return template.LoadResourceTemplateFromValuesData(s.namespace, s.templatePath, valuesData, claimID)
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {

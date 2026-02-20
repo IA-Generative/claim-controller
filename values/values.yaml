@@ -6,6 +6,16 @@ workload:
   image: mcr.microsoft.com/playwright/mcp:v0.0.68
   imagePullPolicy: IfNotPresent
   containerPort: 8932
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 1
+    failureThreshold: 3
 
 service:
   portName: http
@@ -27,6 +37,20 @@ resources: |
         imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
         ports:
           - containerPort: {{ .Values.workload.containerPort }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.workload.containerPort }}
+          initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.workload.containerPort }}
+          initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}
         resources:
           limits:
             cpu: 500m

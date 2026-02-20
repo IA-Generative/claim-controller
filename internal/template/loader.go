@@ -30,7 +30,7 @@ type RenderedResource struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate, error) {
+func LoadResourceTemplate(namespace, templatePath, valuesPath, id string) (ResourceTemplate, error) {
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)
@@ -41,20 +41,19 @@ func LoadResourceTemplate(templatePath, valuesPath, id string) (ResourceTemplate
 		return ResourceTemplate{}, fmt.Errorf("read values file: %w", err)
 	}
 
-	return loadResourceTemplateFromData(templatePath, templateData, valuesData, id)
+	return loadResourceTemplateFromData(namespace, templatePath, templateData, valuesData, id)
 }
 
-func LoadResourceTemplateFromValuesData(templatePath string, valuesData []byte, id string) (ResourceTemplate, error) {
+func LoadResourceTemplateFromValuesData(namespace, templatePath string, valuesData []byte, id string) (ResourceTemplate, error) {
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("read template file: %w", err)
 	}
 
-	return loadResourceTemplateFromData(templatePath, templateData, valuesData, id)
+	return loadResourceTemplateFromData(namespace, templatePath, templateData, valuesData, id)
 }
 
-func loadResourceTemplateFromData(templatePath string, templateData, valuesData []byte, id string) (ResourceTemplate, error) {
-
+func loadResourceTemplateFromData(namespace, templatePath string, templateData, valuesData []byte, id string) (ResourceTemplate, error) {
 	values, err := chartutil.ReadValues(valuesData)
 	if err != nil {
 		return ResourceTemplate{}, fmt.Errorf("decode values file: %w", err)
@@ -78,7 +77,7 @@ func loadResourceTemplateFromData(templatePath string, templateData, valuesData 
 		values,
 		chartutil.ReleaseOptions{
 			Name:      chartName,
-			Namespace: "default",
+			Namespace: namespace,
 			Revision:  1,
 			IsInstall: true,
 		},
