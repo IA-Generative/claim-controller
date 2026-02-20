@@ -26,6 +26,8 @@ defaultTTL: ""
 maxTTL: ""
 # default in code: 30s
 reconcileInterval: ""
+# default in code: 0
+preProvisionClaimsCount: ""
 
 valuesTemplate: |
   workload:
@@ -105,6 +107,7 @@ valuesTemplate: |
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
       annotations:
+        claim.controller/lazy-provisionning: "true"
         claim.controller/return: "fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local"
     spec:
       ports:

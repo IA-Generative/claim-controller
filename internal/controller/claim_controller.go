@@ -74,12 +74,14 @@ func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
+	isPreProvisioned := isPreProvisionedClaim(claim)
+
 	expiresAt, err := time.Parse(time.RFC3339, claim.Annotations[ExpiresAtAnnotationKey])
 	if err != nil {
 		expiresAt = time.Now().UTC().Add(r.DefaultTTL)
 	}
 
-	if time.Now().UTC().After(expiresAt) {
+	if !isPreProvisioned && time.Now().UTC().After(expiresAt) {
 		if err := r.cleanupClaimResources(ctx, claim); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -104,6 +106,9 @@ func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	_ = r.refreshMetrics(ctx)
 	nextCheck := time.Until(expiresAt)
+	if isPreProvisioned {
+		nextCheck = r.ReconcileInterval
+	}
 	if nextCheck < 5*time.Second {
 		nextCheck = 5 * time.Second
 	}
@@ -123,11 +128,17 @@ func (r *ClaimReconciler) evaluateClaimReadiness(ctx context.Context, claim *cor
 		return false, "", nil, err
 	}
 
+	isPreProvisioned := isPreProvisionedClaim(claim)
+
 	allReady := true
 	readyCount := 0
 	statuses := make([]resourceReadiness, 0, len(resources))
 
 	for _, resourceTemplate := range resources {
+		if isPreProvisioned && isLazyProvisionedResource(resourceTemplate) {
+			continue
+		}
+
 		resourceObj := &unstructured.Unstructured{}
 		resourceObj.SetGroupVersionKind(resourceTemplate.GroupVersionKind())
 		resourceObj.SetName(resourceTemplate.GetName())
@@ -278,6 +289,10 @@ func (r *ClaimReconciler) cleanupExpiredClaims(ctx context.Context) error {
 	now := time.Now().UTC()
 	for i := range claims.Items {
 		claim := &claims.Items[i]
+		if isPreProvisionedClaim(claim) {
+			continue
+		}
+
 		expiresAt, err := time.Parse(time.RFC3339, claim.Annotations[ExpiresAtAnnotationKey])
 		if err != nil || now.Before(expiresAt) {
 			continue
@@ -307,7 +322,13 @@ func (r *ClaimReconciler) ensureClaimResources(ctx context.Context, claim *corev
 		return err
 	}
 
+	isPreProvisioned := isPreProvisionedClaim(claim)
+
 	for _, resourceTemplate := range resources {
+		if isPreProvisioned && isLazyProvisionedResource(resourceTemplate) {
+			continue
+		}
+
 		resourceObj := resourceTemplate.DeepCopy()
 		isNamespaced, err := r.isNamespacedResource(resourceObj)
 		if err != nil {
@@ -434,9 +455,38 @@ func (r *ClaimReconciler) refreshMetrics(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
+
+		if isPreProvisionedClaim(&claim) {
+			for _, template := range templates {
+				if isLazyProvisionedResource(template) {
+					continue
+				}
+				resources++
+			}
+			continue
+		}
+
 		resources += len(templates)
 	}
 	activeResourcesGauge.Set(float64(resources))
 
 	return nil
+}
+
+func isPreProvisionedClaim(claim *corev1.ConfigMap) bool {
+	if claim == nil {
+		return false
+	}
+
+	value := strings.TrimSpace(claim.Annotations[PreProvisionedAnnotationKey])
+	return strings.EqualFold(value, "true")
+}
+
+func isLazyProvisionedResource(resource *unstructured.Unstructured) bool {
+	if resource == nil {
+		return false
+	}
+
+	value := strings.TrimSpace(resource.GetAnnotations()[LazyProvisioningAnnotationKey])
+	return strings.EqualFold(value, "true")
 }

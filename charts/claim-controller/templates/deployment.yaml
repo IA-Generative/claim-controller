@@ -46,6 +46,10 @@ spec:
             - name: RECONCILE_INTERVAL
               value: {{ .Values.reconcileInterval | quote }}
             {{- end }}
+            {{- if .Values.preProvisionClaimsCount }}
+            - name: PRE_PROVISION_CLAIMS_COUNT
+              value: {{ .Values.preProvisionClaimsCount | quote }}
+            {{- end }}
           ports:
             - name: api
               containerPort: 8080

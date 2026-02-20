@@ -20,3 +20,4 @@ services:
       # This environment variable is used by the controller to locate the values file and not fallback to configmap mode
       VALUES_PATH: /values/values.yaml
       KUBECONFIG: /home/nonroot/.kube/config
+      PRE_PROVISION_CLAIMS_COUNT: 2 # Example value, can be overridden by the values file

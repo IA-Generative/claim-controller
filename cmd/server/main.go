@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -41,6 +42,7 @@ func main() {
 		metricsAddr         string
 		defaultTTL          time.Duration
 		maxTTL              time.Duration
+		preProvisionCount   int
 		reconcileInterval   time.Duration
 		probeAddr           string
 		controllerLogLevel  int
@@ -55,6 +57,7 @@ func main() {
 		defaultProbeAddr         = "0.0.0.0:8082"
 		defaultTTLValue          = 3 * time.Minute
 		defaultMaxTTLValue       = 10 * time.Minute
+		defaultPreProvisionCount = 0
 		defaultReconcileInterval = 30 * time.Second
 	)
 
@@ -72,6 +75,7 @@ func main() {
 	probeAddrDefault := resolveString("PROBE_ADDR", os.Getenv("PROBE_ADDR"), defaultProbeAddr)
 	defaultTTLDefault := resolveDuration("DEFAULT_TTL", os.Getenv("DEFAULT_TTL"), defaultTTLValue)
 	maxTTLDefault := resolveDuration("MAX_TTL", os.Getenv("MAX_TTL"), defaultMaxTTLValue)
+	preProvisionCountDefault := resolveInt("PRE_PROVISION_CLAIMS_COUNT", os.Getenv("PRE_PROVISION_CLAIMS_COUNT"), defaultPreProvisionCount)
 	reconcileIntervalDefault := resolveDuration("RECONCILE_INTERVAL", os.Getenv("RECONCILE_INTERVAL"), defaultReconcileInterval)
 
 	flag.StringVar(&namespace, "namespace", namespaceDefault, "namespace watched and managed by the controller")
@@ -84,6 +88,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-addr", probeAddrDefault, "probe listen address")
 	flag.DurationVar(&defaultTTL, "default-ttl", defaultTTLDefault, "default claim lifetime")
 	flag.DurationVar(&maxTTL, "max-ttl", maxTTLDefault, "maximum claim lifetime")
+	flag.IntVar(&preProvisionCount, "pre-provision-claims-count", preProvisionCountDefault, "number of claims pre-provisioned in advance")
 	flag.DurationVar(&reconcileInterval, "reconcile-interval", reconcileIntervalDefault, "controller periodic reconcile interval")
 	flag.IntVar(&controllerLogLevel, "zap-log-level", 0, "zap logger level")
 	flag.Parse()
@@ -145,12 +150,13 @@ func main() {
 	}
 
 	apiServer := api.NewServer(api.Config{
-		Namespace:      namespace,
-		DefaultTTL:     defaultTTL,
-		MaxTTL:         maxTTL,
-		TemplatePath:   templatePath,
-		ValuesProvider: resolveValuesProvider(logger, kubeClient, namespace, valuesConfigMapName, valuesConfigMapKey, valuesPath),
-		Client:         manager.GetClient(),
+		Namespace:         namespace,
+		DefaultTTL:        defaultTTL,
+		MaxTTL:            maxTTL,
+		PreProvisionCount: preProvisionCount,
+		TemplatePath:      templatePath,
+		ValuesProvider:    resolveValuesProvider(logger, kubeClient, namespace, valuesConfigMapName, valuesConfigMapKey, valuesPath),
+		Client:            manager.GetClient(),
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -184,7 +190,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("starting manager", "namespace", namespace, "apiAddr", apiAddr, "metricsAddr", metricsAddr, "templatePath", templatePath, "valuesPath", valuesPath, "defaultTTL", defaultTTL.String(), "maxTTL", maxTTL.String())
+	logger.Info("starting manager", "namespace", namespace, "apiAddr", apiAddr, "metricsAddr", metricsAddr, "templatePath", templatePath, "valuesPath", valuesPath, "defaultTTL", defaultTTL.String(), "maxTTL", maxTTL.String(), "preProvisionClaimsCount", preProvisionCount)
 	if err := manager.Start(ctx); err != nil {
 		panic(fmt.Errorf("run manager: %w", err))
 	}
@@ -231,6 +237,22 @@ func resolveDuration(envName, fileValue string, fallback time.Duration) time.Dur
 	}
 
 	return config.ParseDurationOrFallback(fileValue, fallback)
+}
+
+func resolveInt(envName, fileValue string, fallback int) int {
+	if envValue := os.Getenv(envName); envValue != "" {
+		if parsed, err := strconv.Atoi(envValue); err == nil {
+			return parsed
+		}
+	}
+
+	if fileValue != "" {
+		if parsed, err := strconv.Atoi(fileValue); err == nil {
+			return parsed
+		}
+	}
+
+	return fallback
 }
 
 func getEnv(name, fallback string) string {

@@ -1,74 +1,119 @@
 # This file is only for a demo purpose, it is not used by the controller.
 # Please refer to charts/claim-controller/values.yaml for the actual values used by the controller.
-workload:
-  name: claim-workload
-  containerName: app
-  image: mcr.microsoft.com/playwright/mcp:v0.0.68
-  imagePullPolicy: IfNotPresent
-  containerPort: 8932
-  readinessProbe:
-    initialDelaySeconds: 5
-    periodSeconds: 10
-    timeoutSeconds: 1
-    failureThreshold: 3
-  livenessProbe:
-    initialDelaySeconds: 15
-    periodSeconds: 20
-    timeoutSeconds: 1
-    failureThreshold: 3
+  workload:
+    name: claim-workload
+    containerName: app
+    image: ghcr.io/ia-generative/playwright/mcp:v0.0.68-chromium
+    imagePullPolicy: Always
+    containerPort: 8932
+    args: 
+    - '--timeout-navigation'
+    - '300000'
+    - '--snapshot-mode=full'
+    - '--isolated'
+    - '--browser'
+    - chromium
+    - '--headless'
+    - '--no-sandbox'
+    - '--port'
+    - '8932'
+    - '--host'
+    - 0.0.0.0
+    - '--allowed-hosts'
+    - '*'
+    readinessProbe:
+      initialDelaySeconds: 1
+      periodSeconds: 1
+      timeoutSeconds: 1
+      failureThreshold: 30
+    livenessProbe:
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 1
+      failureThreshold: 3
 
-service:
-  portName: http
-  port: 80
-  targetPort: 8932
+  service:
+    portName: http
+    port: 80
+    targetPort: 8932
 
-resources: |
-  apiVersion: v1
-  kind: Pod
-  metadata:
-    name: {{ .Release.Name }}
-    labels:
-      app.kubernetes.io/name: {{ .Values.workload.name }}
-  spec:
-    restartPolicy: Never
-    containers:
-      - name: {{ .Values.workload.containerName }}
-        image: {{ .Values.workload.image }}
-        imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
-        ports:
-          - containerPort: {{ .Values.workload.containerPort }}
-        readinessProbe:
-          tcpSocket:
-            port: {{ .Values.workload.containerPort }}
-          initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}
-          timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}
-          failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}
-        livenessProbe:
-          tcpSocket:
-            port: {{ .Values.workload.containerPort }}
-          initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}
-          timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}
-          failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}
-        resources:
-          limits:
-            cpu: 500m
-            memory: 512Mi
-          requests:
-            cpu: 500m
-            memory: 512Mi
-  ---
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: {{ .Release.Name }}
-    labels:
-      app.kubernetes.io/name: {{ .Release.Name }}
-    annotations:
-      claim.controller/return: "fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local"
-  spec:
-    ports:
-      - name: {{ .Values.service.portName | default "http" }}
-        port: {{ .Values.service.port }}
-        targetPort: {{ .Values.service.targetPort }}
+  resources: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: {{ .Release.Name }}
+      labels:
+        app.kubernetes.io/name: {{ .Values.workload.name }}
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: {{ .Values.workload.name }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ .Values.workload.name }}
+        spec:
+          containers:
+            - name: {{ .Values.workload.containerName }}
+              env:
+              - name: DEBUG
+                value: pw:api,pw:browser
+              image: {{ .Values.workload.image }}
+              imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
+              {{- with .Values.workload.args }}
+              args:
+                {{- range . }}
+                - {{ . | quote }}
+                {{- end }}
+              {{- end }}
+              ports:
+                - containerPort: {{ .Values.workload.containerPort }}
+              readinessProbe:
+                tcpSocket:
+                  port: {{ .Values.workload.containerPort }}
+                initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}
+                periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}
+                timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}
+                failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}
+              livenessProbe:
+                tcpSocket:
+                  port: {{ .Values.workload.containerPort }}
+                initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}
+                periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}
+                timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}
+                failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+              # - mountPath: /ms-playwright
+              #   name: ms-playwright
+              - mountPath: /tmp
+                name: tmp
+          volumes:
+          # - emptyDir: {}
+          #   name: ms-playwright
+          - emptyDir: {}
+            name: tmp
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: {{ .Release.Name }}
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+      annotations:
+        claim.controller/lazy-provisionning: "true"
+        claim.controller/return: "fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local"
+    spec:
+      ports:
+        - name: {{ .Values.service.portName | default "http" }}
+          port: {{ .Values.service.port }}
+          targetPort: {{ .Values.service.targetPort }}
+      selector:
+        app.kubernetes.io/name: {{ .Values.workload.name }}

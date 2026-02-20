@@ -16,6 +16,21 @@ var claimsCreatedTotal = promauto.With(metrics.Registry).NewCounter(prometheus.C
 	Help: "Total number of claims successfully created.",
 })
 
+var claimsCreatedOnDemandTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_claims_created_ondemand_total",
+	Help: "Total number of claims created on demand (not pre-provisioned).",
+})
+
+var claimsReusedPreProvisionedTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_claims_reused_preprovisioned_total",
+	Help: "Total number of pre-provisioned claims reused by claim requests.",
+})
+
+var claimsPreProvisionedCreatedTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_claims_preprovisioned_created_total",
+	Help: "Total number of claims created in advance for the pre-provisioned pool.",
+})
+
 var claimReadyDurationSeconds = promauto.With(metrics.Registry).NewHistogram(prometheus.HistogramOpts{
 	Name:    "claim_controller_claim_ready_duration_seconds",
 	Help:    "Time in seconds from claim creation to healthy state.",
@@ -38,6 +53,11 @@ var claimLifetimeExpectedRatio = promauto.With(metrics.Registry).NewHistogram(pr
 	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 2, 3},
 })
 
+var claimUsageExpectedRatio = promauto.With(metrics.Registry).NewHistogram(prometheus.HistogramOpts{
+	Name:    "claim_controller_claim_usage_expected_ratio",
+	Help:    "Ratio between actual claim usage duration and expected usage duration at deletion.",
+	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 2, 3},
+})
 
 func newClaimLifetimeDurationHistogram(defaultTTL time.Duration) prometheus.Observer {
 	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -130,4 +150,50 @@ func claimTotalDurationBuckets(maxTTL time.Duration) []float64 {
 	}
 
 	return buckets
+}
+
+func newClaimIdleDurationHistogram(maxTTL time.Duration) prometheus.Observer {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "claim_controller_claim_idle_duration_seconds",
+		Help:    "Claim idle duration in seconds between resource creation and effective claim usage.",
+		Buckets: claimTotalDurationBuckets(maxTTL),
+	})
+
+	err := metrics.Registry.Register(histogram)
+	if err == nil {
+		return histogram
+	}
+
+	var alreadyRegistered prometheus.AlreadyRegisteredError
+	if errors.As(err, &alreadyRegistered) {
+		existingHistogram, ok := alreadyRegistered.ExistingCollector.(prometheus.Observer)
+		if ok {
+			return existingHistogram
+		}
+	}
+
+	panic(fmt.Errorf("register claim idle duration histogram: %w", err))
+}
+
+func newClaimUsageDurationHistogram(maxTTL time.Duration) prometheus.Observer {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "claim_controller_claim_usage_duration_seconds",
+		Help:    "Claim actual usage duration in seconds between effective claim usage and release.",
+		Buckets: claimTotalDurationBuckets(maxTTL),
+	})
+
+	err := metrics.Registry.Register(histogram)
+	if err == nil {
+		return histogram
+	}
+
+	var alreadyRegistered prometheus.AlreadyRegisteredError
+	if errors.As(err, &alreadyRegistered) {
+		existingHistogram, ok := alreadyRegistered.ExistingCollector.(prometheus.Observer)
+		if ok {
+			return existingHistogram
+		}
+	}
+
+	panic(fmt.Errorf("register claim usage duration histogram: %w", err))
 }

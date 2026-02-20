@@ -6,20 +6,28 @@ Namespaced Kubernetes operator + HTTP API for claim-based ephemeral workloads.
 
 - `POST /claim` accepts optional JSON body `{ "ttl": "<duration>" }`.
 - `POST /renew/{id}` extends claim expiration with the same TTL rules.
+- The API can pre-provision a pool of claims in advance (`PRE_PROVISION_CLAIMS_COUNT`).
+- Resources annotated with `claim.controller/lazy.provisionning: "true"` are deferred until a pre-provisioned claim is actually used.
 - The API creates a managed claim object (`ConfigMap`) with random Pod/Service names.
 - Controller reconciles claims and creates a Pod + Service from a Helm-style template file + separate `values.yaml` loaded at startup.
 - API returns the generated service FQDN: `<service>.<namespace>.svc.cluster.local`.
 - Claims expire after TTL (default `10m`), client-provided TTL is capped by `maxTTL`, and controller deletes claim resources.
 - Metrics are exposed on controller-runtime metrics endpoint (`/metrics`) and include:
-  - `claim_controller_claims_created_total`
-  - `claim_controller_claims_released_total`
-  - `claim_controller_claim_ready_duration_seconds`
-  - `claim_controller_claim_lifetime_duration_seconds`
-  - `claim_controller_claim_total_duration_seconds`
-  - `claim_controller_claim_lifetime_expected_ratio`
-  - `claim_controller_timedout_resources_total`
-  - `claim_controller_active_claims`
-  - `claim_controller_active_resources`
+  - `claim_controller_claims_created_total`: incremented for every successful `/claim` response. Scenario: client asks a claim and gets `201`.
+  - `claim_controller_claims_created_ondemand_total`: incremented when no pre-provisioned claim is available and a fresh claim is created. Scenario: pool empty, API creates one immediately.
+  - `claim_controller_claims_preprovisioned_created_total`: incremented when the background pool filler creates claims in advance. Scenario: pool target is 5 and current is 3, two creations happen.
+  - `claim_controller_claims_reused_preprovisioned_total`: incremented when `/claim` reuses a pre-provisioned claim. Scenario: client request consumes one warm claim.
+  - `claim_controller_claims_released_total`: incremented on successful release. Scenario: client calls `/release/{id}` and claim is deleted.
+  - `claim_controller_claim_ready_duration_seconds`: histogram of wait time until claim resources are ready. Scenario: claim takes 8s before status becomes `ready`.
+  - `claim_controller_claim_idle_duration_seconds`: histogram of idle time before effective claim usage (`creation` → `claimed-at`). Scenario: pre-provisioned claim waits 45s in pool before first use.
+  - `claim_controller_claim_usage_duration_seconds`: histogram of real usage time (`claimed-at` → release). Scenario: claim is actively used for 2m30s.
+  - `claim_controller_claim_lifetime_duration_seconds`: histogram of total real lifetime (`creation` → release). Scenario: claim lives 3m overall including idle + usage.
+  - `claim_controller_claim_total_duration_seconds`: histogram of configured total lifetime (`creation` → `expires-at`). Scenario: claim configured with 10m total TTL window.
+  - `claim_controller_claim_lifetime_expected_ratio`: histogram ratio `real lifetime / configured total lifetime`. Scenario: released halfway through TTL gives ratio close to `0.5`.
+  - `claim_controller_claim_usage_expected_ratio`: histogram ratio `real usage / expected usage` where expected usage is (`expires-at` − `claimed-at`). Scenario: claimed at T+1m, released at T+4m on a 10m max window.
+  - `claim_controller_timedout_claims_total`: incremented when API times out waiting for readiness. Scenario: resources never become ready within wait timeout.
+  - `claim_controller_active_claims`: gauge of currently existing managed claims. Scenario: 7 active claims present now.
+  - `claim_controller_active_resources`: gauge of currently existing managed resources derived from active claims. Scenario: each claim has pod+service, 7 claims show ~14 resources.
 
 ## Run locally
 
@@ -64,6 +72,7 @@ Supported environment variables (with defaults):
 - `DEFAULT_TTL` (default: `10m`)
 - `MAX_TTL` (default: `10m`)
 - `RECONCILE_INTERVAL` (default: `30s`)
+- `PRE_PROVISION_CLAIMS_COUNT` (default: `0`)
 
 ## Hot reload with Air
 

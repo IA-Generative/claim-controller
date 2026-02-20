@@ -9,15 +9,16 @@ import (
 )
 
 type AppConfig struct {
-	Namespace         string `json:"namespace" yaml:"namespace"`
-	TemplatePath      string `json:"templatePath" yaml:"templatePath"`
-	ValuesPath        string `json:"valuesPath" yaml:"valuesPath"`
-	APIAddr           string `json:"apiAddr" yaml:"apiAddr"`
-	MetricsAddr       string `json:"metricsAddr" yaml:"metricsAddr"`
-	ProbeAddr         string `json:"probeAddr" yaml:"probeAddr"`
-	DefaultTTL        string `json:"defaultTTL" yaml:"defaultTTL"`
-	MaxTTL            string `json:"maxTTL" yaml:"maxTTL"`
-	ReconcileInterval string `json:"reconcileInterval" yaml:"reconcileInterval"`
+	Namespace               string `json:"namespace" yaml:"namespace"`
+	TemplatePath            string `json:"templatePath" yaml:"templatePath"`
+	ValuesPath              string `json:"valuesPath" yaml:"valuesPath"`
+	APIAddr                 string `json:"apiAddr" yaml:"apiAddr"`
+	MetricsAddr             string `json:"metricsAddr" yaml:"metricsAddr"`
+	ProbeAddr               string `json:"probeAddr" yaml:"probeAddr"`
+	DefaultTTL              string `json:"defaultTTL" yaml:"defaultTTL"`
+	MaxTTL                  string `json:"maxTTL" yaml:"maxTTL"`
+	PreProvisionClaimsCount string `json:"preProvisionClaimsCount" yaml:"preProvisionClaimsCount"`
+	ReconcileInterval       string `json:"reconcileInterval" yaml:"reconcileInterval"`
 }
 
 func Load(path string) (AppConfig, error) {

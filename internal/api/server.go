@@ -10,10 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/client-go/util/retry"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nonot/claim-controller/internal/controller"
@@ -22,24 +19,28 @@ import (
 )
 
 type Config struct {
-	Namespace      string
-	DefaultTTL     time.Duration
-	MaxTTL         time.Duration
-	TemplatePath   string
-	ValuesProvider values.Provider
-	Client         client.Client
+	Namespace         string
+	DefaultTTL        time.Duration
+	MaxTTL            time.Duration
+	PreProvisionCount int
+	TemplatePath      string
+	ValuesProvider    values.Provider
+	Client            client.Client
 }
 
 type Server struct {
-	namespace      string
-	defaultTTL     time.Duration
-	maxTTL         time.Duration
-	templatePath   string
-	valuesProvider values.Provider
-	client         client.Client
-	claimLifetime  prometheus.Observer
-	claimTotalTTL  prometheus.Observer
-	mux            *http.ServeMux
+	namespace          string
+	defaultTTL         time.Duration
+	maxTTL             time.Duration
+	templatePath       string
+	valuesProvider     values.Provider
+	client             client.Client
+	claimLifetime      prometheus.Observer
+	claimTotalTTL      prometheus.Observer
+	claimIdleDuration  prometheus.Observer
+	claimUsageDuration prometheus.Observer
+	preProvisionCount  int
+	mux                *http.ServeMux
 }
 
 type claimRequest struct {
@@ -56,15 +57,18 @@ func NewServer(cfg Config) *Server {
 	}
 
 	s := &Server{
-		namespace:      cfg.Namespace,
-		defaultTTL:     cfg.DefaultTTL,
-		maxTTL:         maxTTL,
-		templatePath:   cfg.TemplatePath,
-		valuesProvider: cfg.ValuesProvider,
-		client:         cfg.Client,
-		claimLifetime:  newClaimLifetimeDurationHistogram(cfg.DefaultTTL),
-		claimTotalTTL:  newClaimTotalDurationHistogram(maxTTL),
-		mux:            http.NewServeMux(),
+		namespace:          cfg.Namespace,
+		defaultTTL:         cfg.DefaultTTL,
+		maxTTL:             maxTTL,
+		templatePath:       cfg.TemplatePath,
+		valuesProvider:     cfg.ValuesProvider,
+		client:             cfg.Client,
+		claimLifetime:      newClaimLifetimeDurationHistogram(cfg.DefaultTTL),
+		claimTotalTTL:      newClaimTotalDurationHistogram(maxTTL),
+		claimIdleDuration:  newClaimIdleDurationHistogram(maxTTL),
+		claimUsageDuration: newClaimUsageDurationHistogram(maxTTL),
+		preProvisionCount:  max(0, cfg.PreProvisionCount),
+		mux:                http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -74,7 +78,31 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.valuesProvider == nil {
 		return nil
 	}
-	return s.valuesProvider.Start(ctx)
+	if err := s.valuesProvider.Start(ctx); err != nil {
+		return err
+	}
+
+	if s.preProvisionCount <= 0 {
+		return nil
+	}
+
+	go func() {
+		timer := time.NewTimer(0)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				if err := s.ensurePreProvisionedClaims(ctx); err != nil {
+					log.Printf("failed to ensure pre-provisioned claims: %v", err)
+				}
+				timer.Reset(15 * time.Second)
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -107,60 +135,10 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claimID := randomSuffix(8)
-	claimName := fmt.Sprintf("claim-%s", claimID)
-	expiresAt := time.Now().UTC().Add(ttl)
-
-	resourceTemplate, err := s.loadResourceTemplate(claimID)
-	// add id to returned payload
-	if err != nil {
-		log.Printf("failed to load resource template: %v", err)
-		http.Error(w, "failed to render templates", http.StatusInternalServerError)
-		return
-	}
-	if len(resourceTemplate.RenderedObjects) == 0 {
-		http.Error(w, "rendered templates must include at least one resource", http.StatusInternalServerError)
-		return
-	}
-
-	renderedResourcesBytes, err := json.Marshal(resourceTemplate.RenderedObjects)
-	if err != nil {
-		http.Error(w, "failed to serialize rendered resources", http.StatusInternalServerError)
-		return
-	}
-
-	claim := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      claimName,
-			Namespace: s.namespace,
-			Labels: map[string]string{
-				controller.ManagedByLabelKey: controller.ManagedByLabelValue,
-				controller.ClaimLabelKey:     claimName,
-				controller.ClaimLabelKeyId:   claimID,
-			},
-			Annotations: map[string]string{
-				controller.ExpiresAtAnnotationKey: expiresAt.Format(time.RFC3339),
-				controller.CreatedByAnnotationKey: controller.CreatedByAnnotationValue,
-			},
-		},
-		Data: map[string]string{
-			controller.RenderedResourcesDataKey:    string(renderedResourcesBytes),
-			controller.ClaimStatusDataKey:          "pending",
-			controller.ClaimStatusMessageDataKey:   "waiting for resources to be created",
-			controller.ClaimResourcesStatusDataKey: "[]",
-		},
-	}
-
-	if ownerRef := s.valuesProvider.GetOwnerReference(); ownerRef != nil {
-		claim.OwnerReferences = []metav1.OwnerReference{*ownerRef}
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return s.client.Create(ctx, claim)
-	})
+	claim, claimID, expiresAt, isPreProvisioned, err := s.acquireClaim(ctx, ttl)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			http.Error(w, "upstream timeout while creating claim", http.StatusGatewayTimeout)
@@ -169,10 +147,9 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create claim", http.StatusInternalServerError)
 		return
 	}
-	claimsCreatedTotal.Inc()
 
 	readyStart := time.Now()
-	if err := s.waitForClaimReady(r.Context(), claimName, 120*time.Second); err != nil {
+	if err := s.waitForClaimReady(r.Context(), claim.Name, 120*time.Second); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			timedOutClaimsTotal.Inc()
 			http.Error(w, "timed out waiting for claim resources to become ready", http.StatusGatewayTimeout)
@@ -183,19 +160,33 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	readyDurationSeconds := time.Since(readyStart).Seconds()
 	claimReadyDurationSeconds.Observe(readyDurationSeconds)
-	log.Printf("claim became ready: id=%s name=%s ready_duration_seconds=%.6f", claimID, claimName, readyDurationSeconds)
+	log.Printf("claim became ready: id=%s name=%s ready_duration_seconds=%.6f", claimID, claim.Name, readyDurationSeconds)
+
+	returnValues := map[string]string{}
+	if raw := strings.TrimSpace(claim.Data[controller.ReturnValuesDataKey]); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &returnValues)
+	}
 
 	body := make(map[string]any)
 	body["status"] = "ok"
 	body["id"] = claimID
 	body["expiresAt"] = expiresAt.Format(time.RFC3339)
-	body["data"] = resourceTemplate.ReturnValues
+	body["data"] = returnValues
 	body["releasePath"] = fmt.Sprintf("/release/%s", claimID)
 	body["releaseMethod"] = http.MethodPost
 	body["renewPath"] = fmt.Sprintf("/renew/%s", claimID)
 	body["renewMethod"] = http.MethodPost
+	body["preProvisioned"] = isPreProvisioned
 
 	writeJSON(w, http.StatusCreated, body)
+
+	if isPreProvisioned {
+		go func() {
+			if err := s.ensurePreProvisionedClaims(context.Background()); err != nil {
+				log.Printf("failed to replenish pre-provisioned claims: %v", err)
+			}
+		}()
+	}
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
@@ -237,14 +228,23 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !claim.CreationTimestamp.IsZero() {
-			s.claimLifetime.Observe(time.Since(claim.CreationTimestamp.Time).Seconds())
+		if totalActualSeconds, ok := claimTotalActualDurationSeconds(claim, time.Now().UTC()); ok {
+			s.claimLifetime.Observe(totalActualSeconds)
+		}
+		if idleSeconds, ok := claimIdleDurationSeconds(claim); ok {
+			s.claimIdleDuration.Observe(idleSeconds)
+		}
+		if usageActualSeconds, ok := claimUsageActualDurationSeconds(claim, time.Now().UTC()); ok {
+			s.claimUsageDuration.Observe(usageActualSeconds)
 		}
 		if totalDurationSeconds, ok := claimExpectedLifetimeSeconds(claim); ok {
 			s.claimTotalTTL.Observe(totalDurationSeconds)
 		}
 		if ratio, ok := claimLifetimeRatio(claim); ok {
 			claimLifetimeExpectedRatio.Observe(ratio)
+		}
+		if usageRatio, ok := claimUsageRatio(claim); ok {
+			claimUsageExpectedRatio.Observe(usageRatio)
 		}
 	}
 	claimsReleasedTotal.Add(float64(len(claims)))
