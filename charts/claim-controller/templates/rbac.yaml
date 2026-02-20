@@ -13,7 +13,7 @@ metadata:
   name: {{ include "claim-controller.fullname" . }}
   namespace: {{ $ns }}
 rules:
-  - apiGroups: [""]
+  - apiGroups: ["*"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
