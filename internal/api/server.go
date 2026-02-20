@@ -162,7 +162,7 @@ func (s *Server) loadResourceTemplate(claimID string) (template.ResourceTemplate
 		return template.ResourceTemplate{}, err
 	}
 
-	return template.LoadResourceTemplateFromValuesData(s.templatePath, valuesData, claimID)
+	return template.LoadResourceTemplateFromValuesData(s.namespace, s.templatePath, valuesData, claimID)
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
