@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/IA-Generative/claim-controller/compare/v0.2.0...v0.3.0) (2026-02-20)
+
+
+### Features
+
+* add common template value rendering function in _helpers.tpl ([2d79414](https://github.com/IA-Generative/claim-controller/commit/2d794142fbe480c7aa060ceb4e652299ab3e655d))
+* add readiness and liveness probes to workload configuration ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* implement claim readiness evaluation and status updates ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+
+
+### Bug Fixes
+
+* update LoadResourceTemplate functions to include namespace param… ([#10](https://github.com/IA-Generative/claim-controller/issues/10)) ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* update LoadResourceTemplate functions to include namespace parameter ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* update Role apiGroups to allow all groups in rbac.yaml ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+
 ## [0.2.0](https://github.com/IA-Generative/claim-controller/compare/v0.1.1...v0.2.0) (2026-02-19)
 
 
