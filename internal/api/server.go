@@ -71,6 +71,7 @@ type Server struct {
 	valuesProvider values.Provider
 	client         client.Client
 	claimLifetime  prometheus.Observer
+	claimTotalTTL  prometheus.Observer
 	mux            *http.ServeMux
 }
 
@@ -95,6 +96,7 @@ func NewServer(cfg Config) *Server {
 		valuesProvider: cfg.ValuesProvider,
 		client:         cfg.Client,
 		claimLifetime:  newClaimLifetimeDurationHistogram(cfg.DefaultTTL),
+		claimTotalTTL:  newClaimTotalDurationHistogram(maxTTL),
 		mux:            http.NewServeMux(),
 	}
 	s.routes()
@@ -149,6 +151,49 @@ func claimLifetimeDurationBuckets(defaultTTL time.Duration) []float64 {
 	}
 
 	return uniqueBuckets
+}
+
+func newClaimTotalDurationHistogram(maxTTL time.Duration) prometheus.Observer {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "claim_controller_claim_total_duration_seconds",
+		Help:    "Configured total claim duration in seconds from creation to expiration.",
+		Buckets: claimTotalDurationBuckets(maxTTL),
+	})
+
+	err := metrics.Registry.Register(histogram)
+	if err == nil {
+		return histogram
+	}
+
+	var alreadyRegistered prometheus.AlreadyRegisteredError
+	if errors.As(err, &alreadyRegistered) {
+		existingHistogram, ok := alreadyRegistered.ExistingCollector.(prometheus.Observer)
+		if ok {
+			return existingHistogram
+		}
+	}
+
+	panic(fmt.Errorf("register claim total duration histogram: %w", err))
+}
+
+func claimTotalDurationBuckets(maxTTL time.Duration) []float64 {
+	if maxTTL <= 0 {
+		maxTTL = 10 * time.Minute
+	}
+
+	maxSeconds := maxTTL.Seconds()
+	stepSeconds := time.Minute.Seconds()
+	buckets := make([]float64, 0, int(maxSeconds/stepSeconds)+1)
+
+	for bucket := stepSeconds; bucket <= maxSeconds; bucket += stepSeconds {
+		buckets = append(buckets, bucket)
+	}
+
+	if len(buckets) == 0 || buckets[len(buckets)-1] < maxSeconds {
+		buckets = append(buckets, maxSeconds)
+	}
+
+	return buckets
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -402,6 +447,9 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		if !claim.CreationTimestamp.IsZero() {
 			s.claimLifetime.Observe(time.Since(claim.CreationTimestamp.Time).Seconds())
 		}
+		if totalDurationSeconds, ok := claimExpectedLifetimeSeconds(claim); ok {
+			s.claimTotalTTL.Observe(totalDurationSeconds)
+		}
 		if ratio, ok := claimLifetimeRatio(claim); ok {
 			claimLifetimeExpectedRatio.Observe(ratio)
 		}
@@ -534,6 +582,24 @@ func claimLifetimeRatio(claim corev1.ConfigMap) (float64, bool) {
 		return 0, false
 	}
 
+	expectedLifetimeSeconds, ok := claimExpectedLifetimeSeconds(claim)
+	if !ok || expectedLifetimeSeconds <= 0 {
+		return 0, false
+	}
+
+	actualLifetime := time.Since(claim.CreationTimestamp.Time)
+	if actualLifetime < 0 {
+		actualLifetime = 0
+	}
+
+	return actualLifetime.Seconds() / expectedLifetimeSeconds, true
+}
+
+func claimExpectedLifetimeSeconds(claim corev1.ConfigMap) (float64, bool) {
+	if claim.CreationTimestamp.IsZero() {
+		return 0, false
+	}
+
 	expiresAtRaw := strings.TrimSpace(claim.Annotations[controller.ExpiresAtAnnotationKey])
 	if expiresAtRaw == "" {
 		return 0, false
@@ -549,12 +615,7 @@ func claimLifetimeRatio(claim corev1.ConfigMap) (float64, bool) {
 		return 0, false
 	}
 
-	actualLifetime := time.Since(claim.CreationTimestamp.Time)
-	if actualLifetime < 0 {
-		actualLifetime = 0
-	}
-
-	return actualLifetime.Seconds() / expectedLifetime.Seconds(), true
+	return expectedLifetime.Seconds(), true
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

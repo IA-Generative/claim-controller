@@ -15,6 +15,7 @@ Namespaced Kubernetes operator + HTTP API for claim-based ephemeral workloads.
   - `claim_controller_claims_released_total`
   - `claim_controller_claim_ready_duration_seconds`
   - `claim_controller_claim_lifetime_duration_seconds`
+  - `claim_controller_claim_total_duration_seconds`
   - `claim_controller_claim_lifetime_expected_ratio`
   - `claim_controller_timedout_resources_total`
   - `claim_controller_active_claims`
