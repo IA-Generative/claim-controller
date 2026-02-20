@@ -1,6 +1,6 @@
 # claim-controller
 
-![Version: 0.1.4](https://img.shields.io/badge/Version-0.1.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.0](https://img.shields.io/badge/AppVersion-0.3.0-informational?style=flat-square)
+![Version: 0.1.5](https://img.shields.io/badge/Version-0.1.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.0](https://img.shields.io/badge/AppVersion-0.4.0-informational?style=flat-square)
 
 Namespaced claim API and controller for ephemeral Pod/Service workloads
 
@@ -8,24 +8,22 @@ Namespaced claim API and controller for ephemeral Pod/Service workloads
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| api.addr | string | `":8080"` |  |
-| defaultTTL | string | `"3m"` |  |
+| api.addr | string | `""` |  |
+| defaultTTL | string | `""` |  |
 | extraResources | object | `{}` | Extra Kubernetes resources to be deployed along with the release. expressed as a map of YAML documents to be merged |
 | image.pullPolicy | string | `"Always"` |  |
 | image.repository | string | `"ghcr.io/ia-generative/claim-controller"` |  |
 | image.tag | string | `""` |  |
-| maxTTL | string | `"10m"` |  |
-| metrics.addr | string | `":8081"` |  |
+| maxTTL | string | `""` |  |
+| metrics.addr | string | `""` |  |
 | namespace | string | `""` |  |
-| probe.addr | string | `":8082"` |  |
-| reconcileInterval | string | `"30s"` |  |
+| preProvisionClaimsCount | string | `""` |  |
+| reconcileInterval | string | `""` |  |
 | replicaCount | int | `1` |  |
 | resources.limits.cpu | string | `"200m"` |  |
 | resources.limits.memory | string | `"500M"` |  |
 | resources.requests.cpu | string | `"200m"` |  |
 | resources.requests.memory | string | `"500M"` |  |
-| service.externalName.enabled | bool | `true` |  |
-| service.externalName.name | string | `"claim-wrapper"` |  |
 | service.metricsPort | int | `8081` |  |
 | service.port | int | `80` |  |
 | service.type | string | `"ClusterIP"` |  |
@@ -36,7 +34,7 @@ Namespaced claim API and controller for ephemeral Pod/Service workloads
 | serviceMonitor.labels | object | `{}` |  |
 | serviceMonitor.path | string | `"/metrics"` |  |
 | serviceMonitor.scrapeTimeout | string | `""` |  |
-| valuesTemplate | string | `"workload:\n  name: claim-workload\n  containerName: app\n  image: mcr.microsoft.com/playwright/mcp:v0.0.68\n  imagePullPolicy: IfNotPresent\n  containerPort: 8932\n  args: \n  - --snapshot-mode=full\n  - --port=8932\n  - --host=0.0.0.0\n  - --allowed-hosts=*\n  readinessProbe:\n    initialDelaySeconds: 5\n    periodSeconds: 10\n    timeoutSeconds: 1\n    failureThreshold: 3\n  livenessProbe:\n    initialDelaySeconds: 15\n    periodSeconds: 20\n    timeoutSeconds: 1\n    failureThreshold: 3\n\nservice:\n  portName: http\n  port: 80\n  targetPort: 8932\n\nresources: |\n  apiVersion: v1\n  kind: Pod\n  metadata:\n    name: {{ .Release.Name }}\n    labels:\n      app.kubernetes.io/name: {{ .Values.workload.name }}\n  spec:\n    restartPolicy: Never\n    containers:\n      - name: {{ .Values.workload.containerName }}\n        image: {{ .Values.workload.image }}\n        imagePullPolicy: {{ .Values.workload.imagePullPolicy }}\n        {{ with .Values.workload.args }}\n        args:\n          {{- range . }}\n          - {{ . }}\n          {{- end }}\n        {{ end }}\n        ports:\n          - containerPort: {{ .Values.workload.containerPort }}\n        readinessProbe:\n          tcpSocket:\n            port: {{ .Values.workload.containerPort }}\n          initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}\n          periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}\n          timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}\n          failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}\n        livenessProbe:\n          tcpSocket:\n            port: {{ .Values.workload.containerPort }}\n          initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}\n          periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}\n          timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}\n          failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}\n        resources:\n          limits:\n            cpu: 500m\n            memory: 512Mi\n          requests:\n            cpu: 500m\n            memory: 512Mi\n  ---\n  apiVersion: v1\n  kind: Service\n  metadata:\n    name: {{ .Release.Name }}\n    labels:\n      app.kubernetes.io/name: {{ .Release.Name }}\n    annotations:\n      claim.controller/return: \"fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local\"\n  spec:\n    ports:\n      - name: {{ .Values.service.portName | default \"http\" }}\n        port: {{ .Values.service.port }}\n        targetPort: {{ .Values.service.targetPort }}\n"` |  |
+| valuesTemplate | string | `"workload:\n  name: claim-workload\n  containerName: app\n  image: mcr.microsoft.com/playwright/mcp:v0.0.68\n  imagePullPolicy: IfNotPresent\n  containerPort: 8932\n  args: \n  - --snapshot-mode=full\n  - --port=8932\n  - --host=0.0.0.0\n  - --allowed-hosts=*\n  readinessProbe:\n    initialDelaySeconds: 5\n    periodSeconds: 10\n    timeoutSeconds: 1\n    failureThreshold: 3\n  livenessProbe:\n    initialDelaySeconds: 15\n    periodSeconds: 20\n    timeoutSeconds: 1\n    failureThreshold: 3\n\nservice:\n  portName: http\n  port: 80\n  targetPort: 8932\n\nresources: |\n  apiVersion: v1\n  kind: Pod\n  metadata:\n    name: {{ .Release.Name }}\n    labels:\n      app.kubernetes.io/name: {{ .Values.workload.name }}\n  spec:\n    restartPolicy: Never\n    containers:\n      - name: {{ .Values.workload.containerName }}\n        image: {{ .Values.workload.image }}\n        imagePullPolicy: {{ .Values.workload.imagePullPolicy }}\n        {{ with .Values.workload.args }}\n        args:\n          {{- range . }}\n          - {{ . }}\n          {{- end }}\n        {{ end }}\n        ports:\n          - containerPort: {{ .Values.workload.containerPort }}\n        readinessProbe:\n          tcpSocket:\n            port: {{ .Values.workload.containerPort }}\n          initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}\n          periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}\n          timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}\n          failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}\n        livenessProbe:\n          tcpSocket:\n            port: {{ .Values.workload.containerPort }}\n          initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}\n          periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}\n          timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}\n          failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}\n        resources:\n          limits:\n            cpu: 500m\n            memory: 512Mi\n          requests:\n            cpu: 500m\n            memory: 512Mi\n  ---\n  apiVersion: v1\n  kind: Service\n  metadata:\n    name: {{ .Release.Name }}\n    labels:\n      app.kubernetes.io/name: {{ .Release.Name }}\n    annotations:\n      claim.controller/lazy-provisionning: \"true\"\n      claim.controller/return: \"fqdn={{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local\"\n  spec:\n    ports:\n      - name: {{ .Values.service.portName | default \"http\" }}\n        port: {{ .Values.service.port }}\n        targetPort: {{ .Values.service.targetPort }}\n"` |  |
 
 ----------------------------------------------
 Autogenerated from chart metadata using [helm-docs v1.14.2](https://github.com/norwoodj/helm-docs/releases/v1.14.2)
