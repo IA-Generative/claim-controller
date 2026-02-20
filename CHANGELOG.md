@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0](https://github.com/IA-Generative/claim-controller/compare/v0.3.0...v0.4.0) (2026-02-20)
+
+
+### Features
+
+* add claim total duration metric for claims from creation to expiration ([288d8c2](https://github.com/IA-Generative/claim-controller/commit/288d8c291f60452b221067127eda44a3c290bae4))
+* add maxTTL support for claim expiration and renew functionality ([930ccb9](https://github.com/IA-Generative/claim-controller/commit/930ccb9141d1f052f42fa1b9fe6af376b32d5174))
+* add pre-provisioning support for claims ([9f98ccd](https://github.com/IA-Generative/claim-controller/commit/9f98ccd52b7cdd3453d80787efed3baf9cd84bd7))
+* enhance metrics for claim lifecycle management ([d8316ad](https://github.com/IA-Generative/claim-controller/commit/d8316adc6f430a7d6d7473f7efcb46bb2c133d87))
+
 ## [0.3.0](https://github.com/IA-Generative/claim-controller/compare/v0.2.0...v0.3.0) (2026-02-20)
 
 
