@@ -10,6 +10,12 @@ on:
         required: false
         type: string
         description: "Tags to push, separated by return line. If not provided, it will be extracted from git tag"
+  workflow_dispatch:
+    inputs:
+      custom_tags:
+        required: false
+        type: string
+        description: "Tags to push, separated by return line. If not provided, it will be extracted from git tag"
 
 jobs:
   build:
@@ -32,10 +38,16 @@ jobs:
     - name: Extract version
       id: get_version
       run: |
-        if [ -z "${{ inputs.tags }}" ]; then
+        OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+        if [ -n "${{  inputs.custom_tags }}" ]; then
+          echo "Using provided custom tags"
+          TAGS=$(echo "ghcr.io/${OWNER_LOWER}/claim-controller:${{ inputs.custom_tags }}")
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        elif [ -z "${{ inputs.tags }}" ]; then
           echo "No tags provided, extracting from git tag"
           VERSION="${GITHUB_REF_NAME#v}"
-          OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           MAJOR="ghcr.io/${OWNER_LOWER}/claim-controller:$(echo $VERSION | cut -d. -f1)"
           MINOR="ghcr.io/${OWNER_LOWER}/claim-controller:$(echo $VERSION | cut -d. -f1,2)"
           PATCH="ghcr.io/${OWNER_LOWER}/claim-controller:$(echo $VERSION)"
