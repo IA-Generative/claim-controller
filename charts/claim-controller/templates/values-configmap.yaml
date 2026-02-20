@@ -1,9 +1,7 @@
-{{- $ns := default .Release.Namespace .Values.namespace -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "claim-controller.fullname" . }}-values
-  namespace: {{ $ns }}
 data:
   values.yaml: |
 {{ .Values.valuesTemplate | indent 4 }}
