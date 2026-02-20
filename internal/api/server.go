@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,11 +17,41 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/nonot/claim-controller/internal/controller"
 	"github.com/nonot/claim-controller/internal/template"
 	"github.com/nonot/claim-controller/internal/values"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var claimsCreatedTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_claims_created_total",
+	Help: "Total number of claims successfully created.",
+})
+
+var claimReadyDurationSeconds = promauto.With(metrics.Registry).NewHistogram(prometheus.HistogramOpts{
+	Name:    "claim_controller_claim_ready_duration_seconds",
+	Help:    "Time in seconds from claim creation to healthy state.",
+	Buckets: prometheus.ExponentialBuckets(1, 2, 8),
+})
+
+var claimsReleasedTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_claims_released_total",
+	Help: "Total number of claims successfully released.",
+})
+
+var timedOutClaimsTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+	Name: "claim_controller_timedout_claims_total",
+	Help: "Total number of claims that timed out waiting for readiness.",
+})
+
+var claimLifetimeExpectedRatio = promauto.With(metrics.Registry).NewHistogram(prometheus.HistogramOpts{
+	Name:    "claim_controller_claim_lifetime_expected_ratio",
+	Help:    "Ratio between actual claim lifetime and expected lifetime at deletion.",
+	Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 2, 3},
+})
 
 type Config struct {
 	Namespace      string
@@ -36,6 +67,7 @@ type Server struct {
 	templatePath   string
 	valuesProvider values.Provider
 	client         client.Client
+	claimLifetime  prometheus.Observer
 	mux            *http.ServeMux
 }
 
@@ -46,10 +78,61 @@ func NewServer(cfg Config) *Server {
 		templatePath:   cfg.TemplatePath,
 		valuesProvider: cfg.ValuesProvider,
 		client:         cfg.Client,
+		claimLifetime:  newClaimLifetimeDurationHistogram(cfg.DefaultTTL),
 		mux:            http.NewServeMux(),
 	}
 	s.routes()
 	return s
+}
+
+func newClaimLifetimeDurationHistogram(defaultTTL time.Duration) prometheus.Observer {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "claim_controller_claim_lifetime_duration_seconds",
+		Help:    "Claim lifetime in seconds from creation to release.",
+		Buckets: claimLifetimeDurationBuckets(defaultTTL),
+	})
+
+	err := metrics.Registry.Register(histogram)
+	if err == nil {
+		return histogram
+	}
+
+	var alreadyRegistered prometheus.AlreadyRegisteredError
+	if errors.As(err, &alreadyRegistered) {
+		existingHistogram, ok := alreadyRegistered.ExistingCollector.(prometheus.Observer)
+		if ok {
+			return existingHistogram
+		}
+	}
+
+	panic(fmt.Errorf("register claim lifetime duration histogram: %w", err))
+}
+
+func claimLifetimeDurationBuckets(defaultTTL time.Duration) []float64 {
+	ttlSeconds := defaultTTL.Seconds()
+	if ttlSeconds <= 0 {
+		ttlSeconds = 180
+	}
+
+	const maxBuckets = 10
+	buckets := make([]float64, 0, maxBuckets)
+	for i := 1; i <= maxBuckets; i++ {
+		buckets = append(buckets, ttlSeconds*float64(i)/maxBuckets)
+	}
+
+	sort.Float64s(buckets)
+	uniqueBuckets := make([]float64, 0, len(buckets))
+	for _, bucket := range buckets {
+		if len(uniqueBuckets) == 0 || uniqueBuckets[len(uniqueBuckets)-1] != bucket {
+			uniqueBuckets = append(uniqueBuckets, bucket)
+		}
+	}
+
+	if len(uniqueBuckets) > maxBuckets {
+		return uniqueBuckets[:maxBuckets]
+	}
+
+	return uniqueBuckets
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -144,15 +227,21 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create claim", http.StatusInternalServerError)
 		return
 	}
+	claimsCreatedTotal.Inc()
 
+	readyStart := time.Now()
 	if err := s.waitForClaimReady(r.Context(), claimName, 90*time.Second); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			timedOutClaimsTotal.Inc()
 			http.Error(w, "timed out waiting for claim resources to become ready", http.StatusGatewayTimeout)
 			return
 		}
 		http.Error(w, "failed while waiting for claim readiness", http.StatusInternalServerError)
 		return
 	}
+	readyDurationSeconds := time.Since(readyStart).Seconds()
+	claimReadyDurationSeconds.Observe(readyDurationSeconds)
+	log.Printf("claim became ready: id=%s name=%s ready_duration_seconds=%.6f", claimID, claimName, readyDurationSeconds)
 
 	body := make(map[string]any)
 	body["status"] = "ok"
@@ -256,8 +345,44 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to delete claim", http.StatusInternalServerError)
 			return
 		}
+
+		if !claim.CreationTimestamp.IsZero() {
+			s.claimLifetime.Observe(time.Since(claim.CreationTimestamp.Time).Seconds())
+		}
+		if ratio, ok := claimLifetimeRatio(claim); ok {
+			claimLifetimeExpectedRatio.Observe(ratio)
+		}
 	}
+	claimsReleasedTotal.Add(float64(len(claimList.Items)))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func claimLifetimeRatio(claim corev1.ConfigMap) (float64, bool) {
+	if claim.CreationTimestamp.IsZero() {
+		return 0, false
+	}
+
+	expiresAtRaw := strings.TrimSpace(claim.Annotations[controller.ExpiresAtAnnotationKey])
+	if expiresAtRaw == "" {
+		return 0, false
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtRaw)
+	if err != nil {
+		return 0, false
+	}
+
+	expectedLifetime := expiresAt.Sub(claim.CreationTimestamp.Time)
+	if expectedLifetime <= 0 {
+		return 0, false
+	}
+
+	actualLifetime := time.Since(claim.CreationTimestamp.Time)
+	if actualLifetime < 0 {
+		actualLifetime = 0
+	}
+
+	return actualLifetime.Seconds() / expectedLifetime.Seconds(), true
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

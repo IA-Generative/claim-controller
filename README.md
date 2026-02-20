@@ -10,9 +10,14 @@ Namespaced Kubernetes operator + HTTP API for claim-based ephemeral workloads.
 - API returns the generated service FQDN: `<service>.<namespace>.svc.cluster.local`.
 - Claims expire after TTL (default `10m`), and controller deletes claim resources.
 - Metrics are exposed on controller-runtime metrics endpoint (`/metrics`) and include:
+  - `claim_controller_claims_created_total`
+  - `claim_controller_claims_released_total`
+  - `claim_controller_claim_ready_duration_seconds`
+  - `claim_controller_claim_lifetime_duration_seconds`
+  - `claim_controller_claim_lifetime_expected_ratio`
+  - `claim_controller_timedout_resources_total`
   - `claim_controller_active_claims`
-  - `claim_controller_active_pods`
-  - `claim_controller_active_services`
+  - `claim_controller_active_resources`
 
 ## Run locally
 
