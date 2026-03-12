@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/IA-Generative/claim-controller/compare/v0.4.0...v0.4.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* add labels for instance and name in service metadata ([984b518](https://github.com/IA-Generative/claim-controller/commit/984b5186e180f281ddef667a61280be9773afbc4))
+
 ## [0.4.0](https://github.com/IA-Generative/claim-controller/compare/v0.3.0...v0.4.0) (2026-02-20)
 
 
