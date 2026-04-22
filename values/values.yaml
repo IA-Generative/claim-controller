@@ -3,24 +3,9 @@
   workload:
     name: claim-workload
     containerName: app
-    image: ghcr.io/ia-generative/playwright/mcp:v0.0.68-chromium
+    image: ghcr.io/ia-generative/playwright:v1.58.2-jammy
     imagePullPolicy: Always
-    containerPort: 8932
-    args: 
-    - '--timeout-navigation'
-    - '300000'
-    - '--snapshot-mode=full'
-    - '--isolated'
-    - '--browser'
-    - chromium
-    - '--headless'
-    - '--no-sandbox'
-    - '--port'
-    - '8932'
-    - '--host'
-    - 0.0.0.0
-    - '--allowed-hosts'
-    - '*'
+    containerPort: 3000   
     readinessProbe:
       initialDelaySeconds: 1
       periodSeconds: 1
@@ -35,7 +20,7 @@
   service:
     portName: http
     port: 80
-    targetPort: 8932
+    targetPort: 3000
 
   resources: |
     apiVersion: apps/v1
@@ -58,7 +43,7 @@
             - name: {{ .Values.workload.containerName }}
               env:
               - name: DEBUG
-                value: pw:api,pw:browser
+                value: pw:api,pw:protocol,pw:server
               image: {{ .Values.workload.image }}
               imagePullPolicy: {{ .Values.workload.imagePullPolicy }}
               {{- with .Values.workload.args }}
@@ -69,20 +54,6 @@
               {{- end }}
               ports:
                 - containerPort: {{ .Values.workload.containerPort }}
-              readinessProbe:
-                tcpSocket:
-                  port: {{ .Values.workload.containerPort }}
-                initialDelaySeconds: {{ .Values.workload.readinessProbe.initialDelaySeconds }}
-                periodSeconds: {{ .Values.workload.readinessProbe.periodSeconds }}
-                timeoutSeconds: {{ .Values.workload.readinessProbe.timeoutSeconds }}
-                failureThreshold: {{ .Values.workload.readinessProbe.failureThreshold }}
-              livenessProbe:
-                tcpSocket:
-                  port: {{ .Values.workload.containerPort }}
-                initialDelaySeconds: {{ .Values.workload.livenessProbe.initialDelaySeconds }}
-                periodSeconds: {{ .Values.workload.livenessProbe.periodSeconds }}
-                timeoutSeconds: {{ .Values.workload.livenessProbe.timeoutSeconds }}
-                failureThreshold: {{ .Values.workload.livenessProbe.failureThreshold }}
               resources:
                 limits:
                   cpu: 500m
@@ -91,13 +62,9 @@
                   cpu: 500m
                   memory: 512Mi
               volumeMounts:
-              # - mountPath: /ms-playwright
-              #   name: ms-playwright
               - mountPath: /tmp
                 name: tmp
           volumes:
-          # - emptyDir: {}
-          #   name: ms-playwright
           - emptyDir: {}
             name: tmp
     ---
