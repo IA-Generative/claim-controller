@@ -1,0 +1,49 @@
+include:
+- project: $CATALOG_PATH
+  file: vault-ci.yml
+  ref: main
+- project: $CATALOG_PATH
+  file: kaniko-ci.yml
+  ref: main
+
+default:
+  image: alpine:latest
+
+stages:
+- read-secret
+- docker-build
+
+read_secret:
+  stage: read-secret
+  extends:
+  - .vault:read_secret
+
+generate_var:
+  image: ghcr.io/this-is-tobi/tools/curl:latest
+  stage: read-secret
+  script:
+  - |
+    if [ -z "$CI_COMMIT_TAG"]; then
+      echo "No git tag, extracting version from package.json";
+      VERSION=$CI_COMMIT_BRANCH
+    else
+      echo "Git tag found: $CI_COMMIT_TAG, using as version";
+      VERSION=${CI_COMMIT_TAG#v};
+    fi
+    echo "PATCH=$VERSION" >> vars.env
+    cat vars.env
+  artifacts:
+    reports:
+      dotenv: vars.env
+
+build:
+  before_script:
+  - echo $PATCH
+  needs: [generate_var, read_secret]
+  variables:
+    WORKING_DIR: ./
+    DOCKERFILE: ./Dockerfile
+    IMAGE_NAMES: app:${PATCH}
+  stage: docker-build
+  extends:
+  - .kaniko:build-push
