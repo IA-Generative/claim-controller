@@ -5,3 +5,4 @@ metadata:
 data:
   values.yaml: |
 {{ .Values.valuesTemplate | indent 4 }}
+{{ .Values.extraValuesTemplate | indent 4 }}

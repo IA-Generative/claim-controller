@@ -17,7 +17,10 @@ services:
       # Mount kubeconfig for in-cluster testing (optional, can be removed if not needed)
       - ${HOME}/.kube:/home/nonroot/.kube:ro
     environment:
-      # This environment variable is used by the controller to locate the values file and not fallback to configmap mode
-      VALUES_PATH: /values/values.yaml
       KUBECONFIG: /home/nonroot/.kube/config
       PRE_PROVISION_CLAIMS_COUNT: 2 # Example value, can be overridden by the values file
+      # This environment variable is used by the controller to locate the values file and not fallback to configmap mode
+      VALUES_PATH: /values/values.yaml
+      # Set these to empty to ensure the controller does not attempt to use configmap mode
+      # VALUES_CONFIGMAP_NAME: playwright-values # Set to empty to avoid configmap mode
+      # VALUES_CONFIGMAP_KEY: values.yaml # Set to empty to avoid configmap mode

@@ -115,6 +115,9 @@ valuesTemplate: |
           port: {{ .Values.service.port }}
           targetPort: {{ .Values.service.targetPort }}
 
+# Extra values to be merged with the main values template, 
+# useful for testing per-environment overrides without modifying the main template
+extraValuesTemplate: ""
 
 service:
   type: ClusterIP
