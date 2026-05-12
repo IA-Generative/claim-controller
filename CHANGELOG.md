@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.0](https://github.com/IA-Generative/claim-controller/compare/v0.4.1...v0.5.0) (2026-05-12)
+
+
+### Features
+
+* add claim total duration metric for claims from creation to expiration ([288d8c2](https://github.com/IA-Generative/claim-controller/commit/288d8c291f60452b221067127eda44a3c290bae4))
+* add common template value rendering function in _helpers.tpl ([2d79414](https://github.com/IA-Generative/claim-controller/commit/2d794142fbe480c7aa060ceb4e652299ab3e655d))
+* add extraValuesTemplate for environment-specific overrides and update docker-compose environment variables ([d75ecf8](https://github.com/IA-Generative/claim-controller/commit/d75ecf8e94c243184662c2e005c2da24563fca8c))
+* add maxTTL support for claim expiration and renew functionality ([930ccb9](https://github.com/IA-Generative/claim-controller/commit/930ccb9141d1f052f42fa1b9fe6af376b32d5174))
+* add owner reference handling in ConfigMap and File providers ([e765d9e](https://github.com/IA-Generative/claim-controller/commit/e765d9e6612ebd8d212bb8b0dedb89e46eb56947))
+* add pre-provisioning support for claims ([9f98ccd](https://github.com/IA-Generative/claim-controller/commit/9f98ccd52b7cdd3453d80787efed3baf9cd84bd7))
+* add readiness and liveness probes to workload configuration ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* enhance metrics for claim lifecycle management ([d8316ad](https://github.com/IA-Generative/claim-controller/commit/d8316adc6f430a7d6d7473f7efcb46bb2c133d87))
+* implement claim readiness evaluation and status updates ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* Implement claim release functionality and cleanup expired claims ([5eaa6a5](https://github.com/IA-Generative/claim-controller/commit/5eaa6a5d708c08f681e579f9ffcd3a0029f63874))
+
+
+### Bug Fixes
+
+* add labels for instance and name in service metadata ([984b518](https://github.com/IA-Generative/claim-controller/commit/984b5186e180f281ddef667a61280be9773afbc4))
+* streamline version retrieval in Chart.yaml update step ([a81c8f1](https://github.com/IA-Generative/claim-controller/commit/a81c8f141f2cd9e6475a4e0bd3b56d7679daf7c4))
+* update image tag handling in deployment.yaml for better versioning ([#6](https://github.com/IA-Generative/claim-controller/issues/6)) ([5e96ed5](https://github.com/IA-Generative/claim-controller/commit/5e96ed5c8b0808fbc107ab025f4ab03f52eccfd0))
+* update LoadResourceTemplate functions to include namespace param… ([#10](https://github.com/IA-Generative/claim-controller/issues/10)) ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* update LoadResourceTemplate functions to include namespace parameter ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+* update release endpoint to accept claim ID as a path parameter ([2fd4414](https://github.com/IA-Generative/claim-controller/commit/2fd4414588a32368d361f2572f0c9fe33d195bee))
+* update Role apiGroups to allow all groups in rbac.yaml ([17d6178](https://github.com/IA-Generative/claim-controller/commit/17d617871586de357f38ef72daa31cd66ae64065))
+
 ## [0.4.1](https://github.com/IA-Generative/claim-controller/compare/v0.4.0...v0.4.1) (2026-05-11)
 
 
