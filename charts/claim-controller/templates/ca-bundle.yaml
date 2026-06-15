@@ -1,0 +1,13 @@
+{{- if .Values.caCertificates.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ca-bundle
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+type: Opaque
+data:
+  {{- range $filename, $content := .Values.caCertificates.certs }}
+  {{ $filename }}: {{ $content }}
+  {{ end }}
+{{- end }}
