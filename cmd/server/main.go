@@ -199,10 +199,11 @@ func main() {
 func resolveValuesProvider(logger logr.Logger, kubeClient kubernetes.Interface, namespace, configMapName, configMapKey, valuesPath string) values.Provider {
 	if configMapKey != "" && configMapName != "" {
 		configMapProvider, err := values.NewConfigMapProvider(kubeClient, namespace, configMapName, configMapKey)
-		if err == nil {
-			logger.Info("using configmap values provider", "source", configMapProvider.Description())
-			return configMapProvider
+		if err != nil {
+			panic(fmt.Errorf("create configmap values provider: %w", err))
 		}
+		logger.Info("using configmap values provider", "source", configMapProvider.Description())
+		return configMapProvider
 	}
 
 	if valuesPath != "" {
