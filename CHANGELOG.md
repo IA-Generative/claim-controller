@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/IA-Generative/claim-controller/compare/v0.5.0...v0.6.0) (2026-09-25)
+
+
+### Features
+
+* add RBAC rules configuration and improve error handling in values provider ([aac2fe9](https://github.com/IA-Generative/claim-controller/commit/aac2fe92ade74f049a374a9fc36ea4163cebbcfa))
+
+
+### Bug Fixes
+
+* improve error handling in resolveValuesProvider function ([d0de2b3](https://github.com/IA-Generative/claim-controller/commit/d0de2b3d9c4dcfd5d7bd2f80807830f8f2c468e7))
+
 ## [0.5.0](https://github.com/IA-Generative/claim-controller/compare/v0.4.1...v0.5.0) (2026-05-12)
 
 
