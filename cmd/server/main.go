@@ -208,6 +208,7 @@ func resolveValuesProvider(logger logr.Logger, kubeClient kubernetes.Interface, 
 	if valuesPath != "" {
 		fileProvider, err := values.NewFileProvider(valuesPath)
 		if err != nil {
+			panic(fmt.Errorf("create file values provider: %w", err))
 		}
 		logger.Info("using file values provider", "source", fileProvider.Description())
 		return fileProvider

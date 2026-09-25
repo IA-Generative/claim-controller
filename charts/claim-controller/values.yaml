@@ -29,6 +29,10 @@ reconcileInterval: ""
 # default in code: 0
 preProvisionClaimsCount: ""
 
+rbac:
+  # RBAC rules for the claim-controller
+  # rules: []
+
 valuesTemplate: |
   workload:
     name: claim-workload
