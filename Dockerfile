@@ -1,4 +1,4 @@
-FROM golang:1.25 AS dev
+FROM golang:1.26 AS dev
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
@@ -17,7 +17,7 @@ ENV RECONCILE_INTERVAL=30s
 EXPOSE 8080 8081 8082
 ENTRYPOINT ["air", "-c", ".air.toml"]
 
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
