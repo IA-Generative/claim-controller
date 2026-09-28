@@ -1,10 +1,15 @@
 FROM golang:1.26 AS dev
 WORKDIR /workspace
 
+# Cache Go dependencies separately
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Install air for hot reload
 RUN go install github.com/air-verse/air@latest
 
+# Copy source code
 COPY . .
 COPY templates/resources.yaml /templates/resources.yaml
 
@@ -15,7 +20,8 @@ ENV PROBE_ADDR=:8082
 ENV RECONCILE_INTERVAL=30s
 
 EXPOSE 8080 8081 8082
-ENTRYPOINT ["air", "-c", ".air.toml"]
+# Default to bash/sh; can be overridden with --entrypoint
+CMD ["air", "-c", ".air.toml"]
 
 FROM golang:1.26 AS builder
 WORKDIR /src

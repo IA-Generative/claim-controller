@@ -320,12 +320,15 @@ func (s *Server) renewClaim(ctx context.Context, claim corev1.ConfigMap, ttl tim
 }
 
 func (s *Server) ensurePreProvisionedClaims(ctx context.Context) error {
+	s.preProvisionMu.Lock()
+	defer s.preProvisionMu.Unlock()
+
 	if s.preProvisionCount <= 0 {
 		return nil
 	}
 
 	claimList := &corev1.ConfigMapList{}
-	if err := s.client.List(ctx, claimList, client.InNamespace(s.namespace), client.MatchingLabels{controller.ManagedByLabelKey: controller.ManagedByLabelValue}); err != nil {
+	if err := s.reader.List(ctx, claimList, client.InNamespace(s.namespace), client.MatchingLabels{controller.ManagedByLabelKey: controller.ManagedByLabelValue}); err != nil {
 		return err
 	}
 
@@ -437,7 +440,6 @@ func (s *Server) acquirePreProvisionedClaim(ctx context.Context, ttl time.Durati
 			return nil, err
 		}
 
-		claimsCreatedTotal.Inc()
 		return fresh, nil
 	}
 

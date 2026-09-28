@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: dev
+      args:
+        BUILDKIT_INLINE_CACHE: 1
     image: ghcr.io/ia-generative/claim-controller:dev
     mem_limit: 2g
     ports:

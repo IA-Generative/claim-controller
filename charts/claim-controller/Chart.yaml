@@ -3,4 +3,4 @@ name: claim-controller
 description: Namespaced claim API and controller for ephemeral Pod/Service workloads
 type: application
 version: 0.1.8
-appVersion: "0.6.1"
+appVersion: "0.6.2"
