@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/IA-Generative/claim-controller/compare/v0.6.0...v0.6.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **configmap-provider:** remove blockOwnerDeletion from configmap owner reference ([9b99ec1](https://github.com/IA-Generative/claim-controller/commit/9b99ec19990b7dc37896c93228f8df7a5d2db8c0))
+* **configmap-provider:** remove blockOwnerDeletion from configmap owner reference ([06531ac](https://github.com/IA-Generative/claim-controller/commit/06531acd288e897509ca12960a23d82f6461f5e9))
+
 ## [0.6.0](https://github.com/IA-Generative/claim-controller/compare/v0.5.0...v0.6.0) (2026-09-25)
 
 
