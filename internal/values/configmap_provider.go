@@ -164,6 +164,6 @@ func ownerReferenceFromConfigMap(cm *corev1.ConfigMap) *metav1.OwnerReference {
 		APIVersion: "v1",
 		Kind:       "ConfigMap",
 		Name:       cm.Name,
-		UID:        cm.UID,	
+		UID:        cm.UID,
 	}
 }

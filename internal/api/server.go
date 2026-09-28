@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +27,7 @@ type Config struct {
 	TemplatePath      string
 	ValuesProvider    values.Provider
 	Client            client.Client
+	Reader            client.Reader
 }
 
 type Server struct {
@@ -35,11 +37,13 @@ type Server struct {
 	templatePath       string
 	valuesProvider     values.Provider
 	client             client.Client
+	reader             client.Reader
 	claimLifetime      prometheus.Observer
 	claimTotalTTL      prometheus.Observer
 	claimIdleDuration  prometheus.Observer
 	claimUsageDuration prometheus.Observer
 	preProvisionCount  int
+	preProvisionMu     sync.Mutex
 	mux                *http.ServeMux
 }
 
@@ -63,6 +67,7 @@ func NewServer(cfg Config) *Server {
 		templatePath:       cfg.TemplatePath,
 		valuesProvider:     cfg.ValuesProvider,
 		client:             cfg.Client,
+		reader:             cfg.Reader,
 		claimLifetime:      newClaimLifetimeDurationHistogram(cfg.DefaultTTL),
 		claimTotalTTL:      newClaimTotalDurationHistogram(maxTTL),
 		claimIdleDuration:  newClaimIdleDurationHistogram(maxTTL),

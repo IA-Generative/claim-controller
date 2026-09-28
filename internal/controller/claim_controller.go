@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,10 +33,15 @@ var (
 		Name: "claim_controller_active_resources",
 		Help: "Number of managed resources currently present.",
 	})
+	cleanupErrorsTotal = promauto.With(metrics.Registry).NewCounter(prometheus.CounterOpts{
+		Name: "claim_controller_cleanup_errors_total",
+		Help: "Total number of cleanup errors encountered.",
+	})
 )
 
 type ClaimReconciler struct {
 	client.Client
+	APIReader         client.Reader
 	Scheme            *runtime.Scheme
 	Namespace         string
 	DefaultTTL        time.Duration
@@ -83,10 +89,12 @@ func (r *ClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if !isPreProvisioned && time.Now().UTC().After(expiresAt) {
 		if err := r.cleanupClaimResources(ctx, claim); err != nil {
-			return ctrl.Result{}, err
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "CleanupFailed", "Failed to cleanup resources: %v", err)
+			cleanupErrorsTotal.Inc()
 		}
 		if err := r.Delete(ctx, claim); client.IgnoreNotFound(err) != nil {
-			return ctrl.Result{}, err
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "DeletionFailed", "Failed to delete claim: %v", err)
+			cleanupErrorsTotal.Inc()
 		}
 		_ = r.refreshMetrics(ctx)
 		return ctrl.Result{}, nil
@@ -299,10 +307,15 @@ func (r *ClaimReconciler) cleanupExpiredClaims(ctx context.Context) error {
 		}
 
 		if err := r.cleanupClaimResources(ctx, claim); err != nil {
-			return err
+			// Log error but continue cleanup of remaining claims
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "CleanupFailed", "Failed to cleanup resources: %v", err)
+			cleanupErrorsTotal.Inc()
 		}
 		if err := r.Delete(ctx, claim); client.IgnoreNotFound(err) != nil {
-			return err
+			// Log error but continue cleanup of remaining claims
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "DeletionFailed", "Failed to delete claim: %v", err)
+			cleanupErrorsTotal.Inc()
+			continue
 		}
 	}
 
@@ -343,9 +356,18 @@ func (r *ClaimReconciler) ensureClaimResources(ctx context.Context, claim *corev
 
 		existing := &unstructured.Unstructured{}
 		existing.SetGroupVersionKind(resourceObj.GroupVersionKind())
-		err = r.Get(ctx, lookupKey, existing)
+		err = r.APIReader.Get(ctx, lookupKey, existing)
 		if err == nil {
-			continue
+			// Resource exists, check if it's owned by this claim
+			existingLabels := existing.GetLabels()
+			if existingLabels != nil && existingLabels[ManagedByLabelKey] == ManagedByLabelValue && existingLabels[ClaimLabelKey] == claimName {
+				// Already owned by this claim, skip
+				continue
+			}
+			// Resource exists but is not owned by this claim
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "ResourceNameConflict",
+				"Cannot create %s %s: resource already exists and is not owned by claim %s", resourceObj.GetKind(), resourceObj.GetName(), claimName)
+			return fmt.Errorf("resource %s/%s already exists and is not owned by claim %s", resourceObj.GetKind(), resourceObj.GetName(), claimName)
 		}
 		if !apierrors.IsNotFound(err) {
 			return err
@@ -359,7 +381,8 @@ func (r *ClaimReconciler) ensureClaimResources(ctx context.Context, claim *corev
 		labels[ClaimLabelKey] = claimName
 		resourceObj.SetLabels(labels)
 
-		if err := ctrl.SetControllerReference(claim, resourceObj, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(claim, resourceObj, r.Scheme,
+			controllerutil.WithBlockOwnerDeletion(false)); err != nil {
 			return err
 		}
 		if err := r.Create(ctx, resourceObj); err != nil {
@@ -424,6 +447,23 @@ func (r *ClaimReconciler) cleanupClaimResources(ctx context.Context, claim *core
 		}
 		if isNamespaced {
 			resourceObj.SetNamespace(claim.Namespace)
+		}
+
+		// Verify ownership before deletion to prevent accidental deletion of foreign resources
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(resourceObj), resourceObj); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				// Resource not found, skip silently
+				continue
+			}
+			return fmt.Errorf("get resource %s %s: %w", resourceObj.GetKind(), resourceObj.GetName(), err)
+		}
+
+		// Check if resource is owned by this claim
+		labels := resourceObj.GetLabels()
+		if labels == nil || labels[ManagedByLabelKey] != ManagedByLabelValue || labels[ClaimLabelKey] != claim.Name {
+			r.Recorder.Eventf(claim, corev1.EventTypeWarning, "SkippedForeignResource",
+				"Skipped deletion of foreign %s %s (different owner or no label)", resourceObj.GetKind(), resourceObj.GetName())
+			continue
 		}
 
 		if err := r.Delete(ctx, resourceObj); client.IgnoreNotFound(err) != nil {

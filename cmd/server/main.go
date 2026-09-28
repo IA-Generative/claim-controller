@@ -138,6 +138,7 @@ func main() {
 
 	reconciler := &controller.ClaimReconciler{
 		Client:            manager.GetClient(),
+		APIReader:         manager.GetAPIReader(),
 		Scheme:            manager.GetScheme(),
 		Namespace:         namespace,
 		DefaultTTL:        defaultTTL,
@@ -157,6 +158,7 @@ func main() {
 		TemplatePath:      templatePath,
 		ValuesProvider:    resolveValuesProvider(logger, kubeClient, namespace, valuesConfigMapName, valuesConfigMapKey, valuesPath),
 		Client:            manager.GetClient(),
+		Reader:            manager.GetAPIReader(),
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
